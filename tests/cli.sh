@@ -18,6 +18,19 @@ grep -q "Evidence ledger is valid: half-marathon-research-example" "$temporary_d
 grep -q "Entries: 1 (0 linked to at least one policy rule)" "$temporary_directory/evidence.txt"
 test ! -e "$data_file"
 
+"$binary" policy validate policies/half-marathon-v1.json > "$temporary_directory/policy.txt"
+grep -q "Training policy is valid: half-marathon-v1 version 1" "$temporary_directory/policy.txt"
+grep -q "Rules: 13; phases: 6; workout recipes: 9" "$temporary_directory/policy.txt"
+test ! -e "$data_file"
+
+"$binary" plan assess examples/runner-profile.json > "$temporary_directory/assessment.txt"
+grep -q "Current half-marathon equivalent: 1:57:49" "$temporary_directory/assessment.txt"
+grep -q "Supported race-date outcome range: 1:48:42–2:02:32" "$temporary_directory/assessment.txt"
+grep -q "Planner recommendation: 2:00:00" "$temporary_directory/assessment.txt"
+grep -q "Classification: recommended" "$temporary_directory/assessment.txt"
+grep -q "This command only assesses the profile" "$temporary_directory/assessment.txt"
+test ! -e "$data_file"
+
 "$binary" --data "$data_file" init 2026-07-20 > "$temporary_directory/init.txt"
 grep -q "immutable 13-week periodized running schedule" "$temporary_directory/init.txt"
 

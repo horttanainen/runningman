@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "ledger_id": "half-marathon-v1-evidence",
+  "entries": [
+    {
+      "evidence_id": "E-TID-001",
+      "citation": {
+        "title": "The Effect of Periodization and Training Intensity Distribution on Middle- and Long-Distance Running Performance: A Systematic Review",
+        "authors": "Mark Kenneally, Arturo Casado, Jordan Santos-Concejero",
+        "year": 2018,
+        "url": "https://pubmed.ncbi.nlm.nih.gov/29182410/"
+      },
+      "population": "Middle- and long-distance runners represented in 16 observational, case, intervention, and review studies",
+      "training_status": "Mixed runner populations, with substantial representation from trained and high-performing runners",
+      "intervention": "Pyramidal, polarized, and threshold training-intensity distributions over at least four weeks",
+      "comparison": "Comparison between intensity-distribution approaches and their organization relative to goal-race pace",
+      "outcomes": [
+        "Pyramidal and polarized distributions generally produced better performance outcomes than threshold-dominant training",
+        "Organizing intensity relative to goal-race pace can coexist with different periodization models"
+      ],
+      "limitations": [
+        "Only 16 studies met inclusion criteria and study designs were heterogeneous",
+        "The included studies had a mean PEDro quality score of 3.75 out of 10",
+        "Some successful marathon runners used threshold-oriented training despite the overall review finding",
+        "The review does not establish one exact low-intensity percentage for every recreational runner"
+      ],
+      "planning_implication": "Keep most running at low intensity, limit demanding sessions, and treat the exact distribution boundaries as policy choices rather than universal constants.",
+      "confidence": "moderate",
+      "policy_rule_ids": [
+        "PER-01",
+        "INT-01",
+        "RECIPE-01"
+      ]
+    },
+    {
+      "evidence_id": "E-BLOCK-001",
+      "citation": {
+        "title": "Block periodization of endurance training: a systematic review and meta-analysis",
+        "authors": "Knut Sindre Mølmen, Sjur Johansen Øfsteng, Bent R Rønnestad",
+        "year": 2019,
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6802561/"
+      },
+      "population": "Trained to well-trained athletes across 20 included studies, including endurance and team-sport populations",
+      "training_status": "Trained to well-trained",
+      "intervention": "Concentrated endurance-focused training blocks lasting at least one week",
+      "comparison": "Traditional periodization or athletes' ordinary training",
+      "outcomes": [
+        "Meta-analysis found small favorable effects for maximal oxygen uptake and maximal power",
+        "Several endurance and threshold outcomes favored block periodization"
+      ],
+      "limitations": [
+        "Most included studies were small and of low methodological quality",
+        "Prediction intervals included uncertain effects across study settings",
+        "The evidence was not specific to recreational half-marathon preparation"
+      ],
+      "planning_implication": "Use progressive phases for a single race peak, but do not require concentrated block periodization or claim it is superior for this population.",
+      "confidence": "low",
+      "policy_rule_ids": [
+        "PER-01"
+      ]
+    },
+    {
+      "evidence_id": "E-IND-001",
+      "citation": {
+        "title": "Individualized Endurance Training Based on Recovery and Training Status in Recreational Runners",
+        "authors": "Olli-Pekka Nuuttila, Ari Nummela, Elisa Korhonen, Keijo Häkkinen, Heikki Kyröläinen",
+        "year": 2022,
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9473708/"
+      },
+      "population": "Thirty recreational male and female runners in predefined and individualized groups",
+      "training_status": "Recreational endurance-trained",
+      "intervention": "Training load adjusted twice weekly from nocturnal heart-rate variability, perceived recovery, and a heart-rate-to-running-speed index",
+      "comparison": "A predefined 15-week program with the same preparatory, volume, and interval periods",
+      "outcomes": [
+        "Both groups improved maximal treadmill speed and 10-km performance",
+        "The individualized group improved 10-km time more and had more high responders and fewer low responders"
+      ],
+      "limitations": [
+        "The sample was small and the intervention combined several monitoring signals",
+        "The adjustment algorithm cannot be reduced to one wearable score",
+        "The study does not validate automatic day-to-day schedule changes for every runner"
+      ],
+      "planning_implication": "Preserve recovery opportunities and make later plan revisions possible, but do not silently alter the deterministic plan from a single recovery signal.",
+      "confidence": "moderate",
+      "policy_rule_ids": [
+        "REC-01"
+      ]
+    },
+    {
+      "evidence_id": "E-TAPER-001",
+      "citation": {
+        "title": "Effects of tapering on performance in endurance athletes: A systematic review and meta-analysis",
+        "authors": "Zhiqiang Wang, Yong Tai Wang, Weifeng Gao, Yaping Zhong",
+        "year": 2023,
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10171681/"
+      },
+      "population": "174 endurance athletes across 14 studies, mainly runners and cyclists and mostly males",
+      "training_status": "At least well-trained; inclusion required VO2max above 55 mL/kg/min or an equivalent study classification",
+      "intervention": "Step or progressive tapers lasting up to 21 days",
+      "comparison": "Pre-taper performance and control or conventional-taper conditions where available",
+      "outcomes": [
+        "Tapering improved time-trial and time-to-exhaustion performance",
+        "Subgroups reducing volume by 41-60 percent while maintaining intensity and frequency improved time-trial performance"
+      ],
+      "limitations": [
+        "Sports, event distances, and taper protocols varied",
+        "Only 14 studies and 174 athletes were included",
+        "Participants were mostly male and the review did not establish effects for less-trained recreational runners",
+        "The result does not identify one uniquely optimal taper for recreational half-marathon runners"
+      ],
+      "planning_implication": "Use a one-to-three-week taper that reduces volume substantially while retaining the normal core-session rhythm and small doses of intensity.",
+      "confidence": "moderate",
+      "policy_rule_ids": [
+        "TAPER-01"
+      ]
+    },
+    {
+      "evidence_id": "E-INJURY-001",
+      "citation": {
+        "title": "The Association Between Running Injuries and Training Parameters: A Systematic Review",
+        "authors": "Anny Fredette, Jean-Sébastien Roy, Kadija Perreault, Frédérique Dupuis, Christopher Napier, Jean-Francois Esculier",
+        "year": 2022,
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9528699/"
+      },
+      "population": "Novice, recreational, competitive, and mixed runner cohorts in prospective studies and randomized trials",
+      "training_status": "Novice through competitive",
+      "intervention": "Different running distances, durations, frequencies, intensities, and recent changes in those parameters",
+      "comparison": "Injured and uninjured runners or different training progressions",
+      "outcomes": [
+        "Evidence linking distance, duration, frequency, intensity, or recent changes to running-related injury was conflicting",
+        "The review found no justification for a universal ten-percent weekly progression rule"
+      ],
+      "limitations": [
+        "Injury definitions, runner populations, and follow-up periods were highly heterogeneous",
+        "The evidence could not support universal progression recommendations"
+      ],
+      "planning_implication": "Use conservative progression boundaries as transparent product assumptions and never present them as proven injury-prevention thresholds.",
+      "confidence": "high",
+      "policy_rule_ids": [
+        "VOL-01",
+        "LONG-01"
+      ]
+    },
+    {
+      "evidence_id": "E-PRED-001",
+      "citation": {
+        "title": "An empirical study of race times in recreational endurance runners",
+        "authors": "Andrew J Vickers, Emily A Vertosick",
+        "year": 2016,
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5000509/"
+      },
+      "population": "2303 recreational endurance runners reporting training and race results",
+      "training_status": "Recreational",
+      "intervention": "Prediction models using prior race performance, demographics, and routinely available training information",
+      "comparison": "Riegel race-equivalence predictions and models fitted on a training cohort and checked on a validation cohort",
+      "outcomes": [
+        "Race distance, prior performance, and training information contributed to race-time prediction",
+        "The study evaluated a Riegel fatigue exponent of 1.07 and showed that training mileage can improve longer-race estimates"
+      ],
+      "limitations": [
+        "Training and race information was self-reported through an internet survey",
+        "A race-equivalence estimate assumes comparable preparation and conditions",
+        "Population estimates do not provide a guaranteed individual result"
+      ],
+      "planning_implication": "Use a 1.07 race-equivalence estimate as a transparent baseline, widen it by evidence quality, and keep training-readiness adjustments bounded.",
+      "confidence": "moderate",
+      "policy_rule_ids": [
+        "BASE-01",
+        "TARGET-01"
+      ]
+    }
+  ]
+}

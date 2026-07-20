@@ -1,0 +1,584 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/horttanainen/runningman/schemas/training-policy-v1.schema.json",
+  "title": "Runningman training policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "evidence_ledger_id",
+    "support",
+    "periodization",
+    "baseline_assessment",
+    "volume_progression",
+    "recovery",
+    "intensity_distribution",
+    "long_run",
+    "taper",
+    "scheduling",
+    "optional_run",
+    "missed_workout",
+    "workout_categories",
+    "workout_recipes",
+    "rules"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "policy_id": {
+      "$ref": "#/$defs/non_empty_string"
+    },
+    "policy_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "evidence_ledger_id": {
+      "$ref": "#/$defs/non_empty_string"
+    },
+    "support": {
+      "$ref": "#/$defs/support"
+    },
+    "periodization": {
+      "$ref": "#/$defs/periodization"
+    },
+    "baseline_assessment": {
+      "$ref": "#/$defs/baseline_assessment"
+    },
+    "volume_progression": {
+      "$ref": "#/$defs/volume_progression"
+    },
+    "recovery": {
+      "$ref": "#/$defs/recovery"
+    },
+    "intensity_distribution": {
+      "$ref": "#/$defs/intensity_distribution"
+    },
+    "long_run": {
+      "$ref": "#/$defs/long_run"
+    },
+    "taper": {
+      "$ref": "#/$defs/taper"
+    },
+    "scheduling": {
+      "$ref": "#/$defs/scheduling"
+    },
+    "optional_run": {
+      "$ref": "#/$defs/optional_run"
+    },
+    "missed_workout": {
+      "$ref": "#/$defs/missed_workout"
+    },
+    "workout_categories": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/workout_category"
+      }
+    },
+    "workout_recipes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/workout_recipe"
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/rule"
+      }
+    }
+  },
+  "$defs": {
+    "non_empty_string": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fraction": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "positive_integer": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "rule_id": {
+      "$ref": "#/$defs/non_empty_string"
+    },
+    "support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "race_distance",
+        "race_distance_km",
+        "minimum_plan_days",
+        "maximum_plan_days",
+        "minimum_core_running_days",
+        "maximum_core_running_days"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "race_distance": {
+          "const": "half_marathon"
+        },
+        "race_distance_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "minimum_plan_days": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "maximum_plan_days": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "minimum_core_running_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 7
+        },
+        "maximum_core_running_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 7
+        }
+      }
+    },
+    "periodization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "phases",
+        "minimum_foundation_weeks",
+        "minimum_race_specific_weeks",
+        "default_taper_weeks"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "phases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "phase_id",
+              "purpose"
+            ],
+            "properties": {
+              "phase_id": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "purpose": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            }
+          }
+        },
+        "minimum_foundation_weeks": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "minimum_race_specific_weeks": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "default_taper_weeks": {
+          "$ref": "#/$defs/positive_integer"
+        }
+      }
+    },
+    "baseline_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "target_rule_id",
+        "race_equivalence_exponent",
+        "high_confidence_performance_age_days",
+        "maximum_performance_age_days",
+        "five_km_uncertainty_fraction",
+        "ten_km_uncertainty_fraction",
+        "half_marathon_uncertainty_fraction",
+        "hard_effort_extra_uncertainty_fraction",
+        "training_result_extra_uncertainty_fraction",
+        "old_result_extra_uncertainty_fraction",
+        "conflicting_result_threshold_fraction",
+        "projected_improvement_per_week_fraction",
+        "maximum_projected_improvement_fraction",
+        "reduced_readiness_improvement_multiplier",
+        "full_projection_minimum_weekly_distance_km",
+        "full_projection_minimum_long_run_km",
+        "full_projection_maximum_interruption_days",
+        "aspirational_gap_limit_fraction",
+        "target_rounding_seconds",
+        "easy_pace_minimum_seconds_slower_per_km",
+        "easy_pace_maximum_seconds_slower_per_km"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "target_rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "race_equivalence_exponent": {
+          "type": "number",
+          "exclusiveMinimum": 1
+        },
+        "high_confidence_performance_age_days": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "maximum_performance_age_days": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "five_km_uncertainty_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "ten_km_uncertainty_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "half_marathon_uncertainty_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "hard_effort_extra_uncertainty_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "training_result_extra_uncertainty_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "old_result_extra_uncertainty_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "conflicting_result_threshold_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "projected_improvement_per_week_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "maximum_projected_improvement_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "reduced_readiness_improvement_multiplier": {
+          "$ref": "#/$defs/fraction"
+        },
+        "full_projection_minimum_weekly_distance_km": {
+          "type": "number",
+          "minimum": 0
+        },
+        "full_projection_minimum_long_run_km": {
+          "type": "number",
+          "minimum": 0
+        },
+        "full_projection_maximum_interruption_days": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "aspirational_gap_limit_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "target_rounding_seconds": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "easy_pace_minimum_seconds_slower_per_km": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "easy_pace_maximum_seconds_slower_per_km": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "volume_progression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "maximum_build_increase_fraction",
+        "maximum_peak_relative_to_baseline"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "maximum_build_increase_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "maximum_peak_relative_to_baseline": {
+          "type": "number",
+          "minimum": 1
+        }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "minimum_build_weeks_between_recovery",
+        "maximum_build_weeks_between_recovery",
+        "minimum_volume_fraction",
+        "maximum_volume_fraction"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "minimum_build_weeks_between_recovery": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "maximum_build_weeks_between_recovery": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "minimum_volume_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "maximum_volume_fraction": {
+          "$ref": "#/$defs/fraction"
+        }
+      }
+    },
+    "intensity_distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "minimum_low_intensity_fraction",
+        "maximum_low_intensity_fraction",
+        "maximum_quality_sessions_per_week",
+        "easy_effort_guidance",
+        "quality_effort_guidance"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "minimum_low_intensity_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "maximum_low_intensity_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "maximum_quality_sessions_per_week": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "easy_effort_guidance": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "quality_effort_guidance": {
+          "$ref": "#/$defs/non_empty_string"
+        }
+      }
+    },
+    "long_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "maximum_weekly_increase_km",
+        "maximum_weekly_distance_fraction",
+        "maximum_peak_distance_km"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "maximum_weekly_increase_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "maximum_weekly_distance_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "maximum_peak_distance_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "taper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "minimum_days",
+        "maximum_days",
+        "minimum_volume_reduction_fraction",
+        "maximum_volume_reduction_fraction",
+        "maintain_intensity",
+        "maintain_core_frequency"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "minimum_days": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "maximum_days": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "minimum_volume_reduction_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "maximum_volume_reduction_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "maintain_intensity": {
+          "const": true
+        },
+        "maintain_core_frequency": {
+          "const": true
+        }
+      }
+    },
+    "scheduling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "minimum_easy_or_rest_days_between_demanding_sessions"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "minimum_easy_or_rest_days_between_demanding_sessions": {
+          "$ref": "#/$defs/positive_integer"
+        }
+      }
+    },
+    "optional_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "maximum_weekly_distance_fraction",
+        "may_be_removed_without_rescheduling"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "maximum_weekly_distance_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "may_be_removed_without_rescheduling": {
+          "const": true
+        }
+      }
+    },
+    "missed_workout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "stack_later_in_week",
+        "preserve_hard_session_spacing"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "stack_later_in_week": {
+          "const": false
+        },
+        "preserve_hard_session_spacing": {
+          "const": true
+        }
+      }
+    },
+    "workout_category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category_id",
+        "intensity_class",
+        "description"
+      ],
+      "properties": {
+        "category_id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "intensity_class": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "description": {
+          "$ref": "#/$defs/non_empty_string"
+        }
+      }
+    },
+    "workout_recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recipe_id",
+        "category_id",
+        "phase_ids",
+        "description",
+        "rule_id"
+      ],
+      "properties": {
+        "recipe_id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "category_id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "phase_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "description": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "category",
+        "summary",
+        "evidence_ids"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "category": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "summary": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "product_assumption": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

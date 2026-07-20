@@ -1,0 +1,369 @@
+{
+  "schema_version": 1,
+  "policy_id": "half-marathon-v1",
+  "policy_version": 1,
+  "evidence_ledger_id": "half-marathon-v1-evidence",
+  "support": {
+    "rule_id": "SCOPE-01",
+    "race_distance": "half_marathon",
+    "race_distance_km": 21.0975,
+    "minimum_plan_days": 56,
+    "maximum_plan_days": 168,
+    "minimum_core_running_days": 3,
+    "maximum_core_running_days": 6
+  },
+  "periodization": {
+    "rule_id": "PER-01",
+    "phases": [
+      {
+        "phase_id": "foundation",
+        "purpose": "Establish sustainable frequency, low-intensity volume, and controlled quality."
+      },
+      {
+        "phase_id": "build",
+        "purpose": "Progress volume, long-run capacity, and demanding-session duration."
+      },
+      {
+        "phase_id": "recovery",
+        "purpose": "Reduce planned load while retaining normal running rhythm."
+      },
+      {
+        "phase_id": "race_specific",
+        "purpose": "Practice bounded half-marathon-specific work after the aerobic build."
+      },
+      {
+        "phase_id": "taper",
+        "purpose": "Reduce accumulated fatigue while retaining frequency and small intensity doses."
+      },
+      {
+        "phase_id": "race",
+        "purpose": "Arrive at and execute the target event."
+      }
+    ],
+    "minimum_foundation_weeks": 2,
+    "minimum_race_specific_weeks": 2,
+    "default_taper_weeks": 2
+  },
+  "baseline_assessment": {
+    "rule_id": "BASE-01",
+    "target_rule_id": "TARGET-01",
+    "race_equivalence_exponent": 1.07,
+    "high_confidence_performance_age_days": 56,
+    "maximum_performance_age_days": 180,
+    "five_km_uncertainty_fraction": 0.06,
+    "ten_km_uncertainty_fraction": 0.04,
+    "half_marathon_uncertainty_fraction": 0.02,
+    "hard_effort_extra_uncertainty_fraction": 0.03,
+    "training_result_extra_uncertainty_fraction": 0.02,
+    "old_result_extra_uncertainty_fraction": 0.02,
+    "conflicting_result_threshold_fraction": 0.06,
+    "projected_improvement_per_week_fraction": 0.003,
+    "maximum_projected_improvement_fraction": 0.06,
+    "reduced_readiness_improvement_multiplier": 0.5,
+    "full_projection_minimum_weekly_distance_km": 20,
+    "full_projection_minimum_long_run_km": 10,
+    "full_projection_maximum_interruption_days": 7,
+    "aspirational_gap_limit_fraction": 0.05,
+    "target_rounding_seconds": 300,
+    "easy_pace_minimum_seconds_slower_per_km": 30,
+    "easy_pace_maximum_seconds_slower_per_km": 75
+  },
+  "volume_progression": {
+    "rule_id": "VOL-01",
+    "maximum_build_increase_fraction": 0.1,
+    "maximum_peak_relative_to_baseline": 1.5
+  },
+  "recovery": {
+    "rule_id": "REC-01",
+    "minimum_build_weeks_between_recovery": 2,
+    "maximum_build_weeks_between_recovery": 3,
+    "minimum_volume_fraction": 0.7,
+    "maximum_volume_fraction": 0.85
+  },
+  "intensity_distribution": {
+    "rule_id": "INT-01",
+    "minimum_low_intensity_fraction": 0.75,
+    "maximum_low_intensity_fraction": 0.9,
+    "maximum_quality_sessions_per_week": 2,
+    "easy_effort_guidance": "Conversational running, normally RPE 2-4 out of 10.",
+    "quality_effort_guidance": "Controlled demanding work, normally RPE 6-8; repetitions stop before form deteriorates."
+  },
+  "long_run": {
+    "rule_id": "LONG-01",
+    "maximum_weekly_increase_km": 2,
+    "maximum_weekly_distance_fraction": 0.4,
+    "maximum_peak_distance_km": 21
+  },
+  "taper": {
+    "rule_id": "TAPER-01",
+    "minimum_days": 7,
+    "maximum_days": 21,
+    "minimum_volume_reduction_fraction": 0.41,
+    "maximum_volume_reduction_fraction": 0.6,
+    "maintain_intensity": true,
+    "maintain_core_frequency": true
+  },
+  "scheduling": {
+    "rule_id": "SCHED-01",
+    "minimum_easy_or_rest_days_between_demanding_sessions": 1
+  },
+  "optional_run": {
+    "rule_id": "OPTIONAL-01",
+    "maximum_weekly_distance_fraction": 0.12,
+    "may_be_removed_without_rescheduling": true
+  },
+  "missed_workout": {
+    "rule_id": "MISSED-01",
+    "stack_later_in_week": false,
+    "preserve_hard_session_spacing": true
+  },
+  "workout_categories": [
+    {
+      "category_id": "rest",
+      "intensity_class": "none",
+      "description": "No running."
+    },
+    {
+      "category_id": "recovery",
+      "intensity_class": "low",
+      "description": "Optional very easy running."
+    },
+    {
+      "category_id": "easy",
+      "intensity_class": "low",
+      "description": "Conversational aerobic running."
+    },
+    {
+      "category_id": "long",
+      "intensity_class": "low",
+      "description": "Extended mostly conversational running."
+    },
+    {
+      "category_id": "quality",
+      "intensity_class": "high",
+      "description": "Intervals, hills, threshold, or race-specific work."
+    },
+    {
+      "category_id": "race",
+      "intensity_class": "event",
+      "description": "The goal half marathon."
+    }
+  ],
+  "workout_recipes": [
+    {
+      "recipe_id": "rest-day",
+      "category_id": "rest",
+      "phase_ids": [
+        "foundation",
+        "build",
+        "recovery",
+        "race_specific",
+        "taper",
+        "race"
+      ],
+      "description": "A full day without scheduled running.",
+      "rule_id": "RECIPE-01"
+    },
+    {
+      "recipe_id": "easy-distance",
+      "category_id": "easy",
+      "phase_ids": [
+        "foundation",
+        "build",
+        "recovery",
+        "race_specific",
+        "taper",
+        "race"
+      ],
+      "description": "A distance-based conversational aerobic run.",
+      "rule_id": "RECIPE-01"
+    },
+    {
+      "recipe_id": "optional-recovery",
+      "category_id": "recovery",
+      "phase_ids": [
+        "foundation",
+        "build",
+        "recovery",
+        "race_specific"
+      ],
+      "description": "A removable short recovery run.",
+      "rule_id": "OPTIONAL-01"
+    },
+    {
+      "recipe_id": "long-easy",
+      "category_id": "long",
+      "phase_ids": [
+        "foundation",
+        "build",
+        "recovery",
+        "race_specific",
+        "taper"
+      ],
+      "description": "A mostly easy long run bounded by weekly distance and progression rules.",
+      "rule_id": "LONG-01"
+    },
+    {
+      "recipe_id": "hill-repeats",
+      "category_id": "quality",
+      "phase_ids": [
+        "foundation",
+        "build"
+      ],
+      "description": "Short controlled uphill repetitions with easy downhill recovery.",
+      "rule_id": "RECIPE-01"
+    },
+    {
+      "recipe_id": "aerobic-intervals",
+      "category_id": "quality",
+      "phase_ids": [
+        "foundation",
+        "build",
+        "race_specific"
+      ],
+      "description": "Structured repetitions with recoveries and complete warm-up and cooldown.",
+      "rule_id": "RECIPE-01"
+    },
+    {
+      "recipe_id": "threshold-blocks",
+      "category_id": "quality",
+      "phase_ids": [
+        "build",
+        "race_specific"
+      ],
+      "description": "Controlled sustained work divided into bounded segments.",
+      "rule_id": "RECIPE-01"
+    },
+    {
+      "recipe_id": "half-marathon-segments",
+      "category_id": "quality",
+      "phase_ids": [
+        "race_specific",
+        "taper"
+      ],
+      "description": "Race-specific segments anchored to the supported pace rather than an unsupported aspirational target.",
+      "rule_id": "RECIPE-01"
+    },
+    {
+      "recipe_id": "half-marathon-race",
+      "category_id": "race",
+      "phase_ids": [
+        "race"
+      ],
+      "description": "The 21.0975 km goal event.",
+      "rule_id": "SCOPE-01"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "SCOPE-01",
+      "category": "scope",
+      "summary": "Version 1 supports one half marathon over 56-168 days with 3-6 core running days.",
+      "evidence_ids": [],
+      "product_assumption": "This is the deliberately narrow product scope approved for Phase 1, not a physiological boundary."
+    },
+    {
+      "rule_id": "PER-01",
+      "category": "periodization",
+      "summary": "Progress from foundation through race-specific preparation to one taper and race peak.",
+      "evidence_ids": [
+        "E-TID-001",
+        "E-BLOCK-001"
+      ],
+      "product_assumption": "A transparent traditional phase sequence is preferred over concentrated high-intensity blocks for the first recreational half-marathon policy."
+    },
+    {
+      "rule_id": "BASE-01",
+      "category": "assessment",
+      "summary": "Estimate current half-marathon equivalence from the strongest recent hard performance and expose uncertainty.",
+      "evidence_ids": [
+        "E-PRED-001"
+      ],
+      "product_assumption": "Distance-specific uncertainty bands are conservative review values and are not confidence intervals from the cited study."
+    },
+    {
+      "rule_id": "TARGET-01",
+      "category": "assessment",
+      "summary": "Recommend a rounded supported target and classify faster requests without changing policy constraints.",
+      "evidence_ids": [
+        "E-PRED-001"
+      ],
+      "product_assumption": "Projected improvement, readiness multipliers, rounding, and aspirational-gap limits are bounded product assumptions for transparent goal setting."
+    },
+    {
+      "rule_id": "VOL-01",
+      "category": "volume",
+      "summary": "Limit planned build-week volume changes and the peak relative to the stated baseline.",
+      "evidence_ids": [
+        "E-INJURY-001"
+      ],
+      "product_assumption": "The 10 percent build cap smooths generated plans; it is not presented as a proven injury-prevention threshold."
+    },
+    {
+      "rule_id": "REC-01",
+      "category": "recovery",
+      "summary": "Insert reduced-volume recovery weeks after two or three build weeks.",
+      "evidence_ids": [
+        "E-IND-001"
+      ],
+      "product_assumption": "Fixed recovery-week timing and reduction ranges are conservative defaults pending individual response data."
+    },
+    {
+      "rule_id": "INT-01",
+      "category": "intensity",
+      "summary": "Keep 75-90 percent of planned running at low intensity and limit demanding sessions.",
+      "evidence_ids": [
+        "E-TID-001"
+      ],
+      "product_assumption": "The exact percentage range and two-session cap operationalize a pyramidal approach for recreational runners."
+    },
+    {
+      "rule_id": "LONG-01",
+      "category": "long_run",
+      "summary": "Bound long-run progression, weekly share, and peak distance.",
+      "evidence_ids": [
+        "E-INJURY-001"
+      ],
+      "product_assumption": "The two-kilometre increment, 40 percent share, and 21-kilometre peak are plan-construction bounds rather than proven universal injury thresholds."
+    },
+    {
+      "rule_id": "TAPER-01",
+      "category": "taper",
+      "summary": "Taper for 7-21 days by reducing volume 41-60 percent while retaining core frequency and small intensity doses.",
+      "evidence_ids": [
+        "E-TAPER-001"
+      ],
+      "product_assumption": "The generator will select a duration inside the evidence-supported range according to total plan length."
+    },
+    {
+      "rule_id": "SCHED-01",
+      "category": "scheduling",
+      "summary": "Separate demanding sessions with at least one easy or rest day.",
+      "evidence_ids": [],
+      "product_assumption": "This is a conservative scheduling constraint for a general recreational plan."
+    },
+    {
+      "rule_id": "OPTIONAL-01",
+      "category": "optional_run",
+      "summary": "Keep optional recovery running small and removable without compensation.",
+      "evidence_ids": [],
+      "product_assumption": "Optional sessions must remain behaviorally optional and cannot be required to meet core volume."
+    },
+    {
+      "rule_id": "MISSED-01",
+      "category": "missed_workout",
+      "summary": "Do not stack a missed workout later if doing so compromises demanding-session spacing.",
+      "evidence_ids": [],
+      "product_assumption": "Preserving the remaining schedule structure is preferred to short-term mileage compensation."
+    },
+    {
+      "rule_id": "RECIPE-01",
+      "category": "workout_recipe",
+      "summary": "Use low-intensity, controlled quality, race-specific, and rest recipes appropriate to each phase.",
+      "evidence_ids": [
+        "E-TID-001"
+      ],
+      "product_assumption": "Exact recipe distances, durations, repetitions, and paces will be generated and validated in Increment 3."
+    }
+  ]
+}

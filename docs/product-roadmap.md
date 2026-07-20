@@ -1,15 +1,16 @@
 # Runningman product and planning roadmap
 
-Status: proposed
+Status: in progress
 Last updated: 2026-07-20
 
 This document records the intended technical direction for `runningman` and the
-detailed proposal for Phase 1. Phase 1 remains a proposal until it is reviewed
-and approved.
+detailed design for Phase 1. The phase is being implemented through explicit
+review gates.
 
-Implementation status: Phase 1 Increment 1 is implemented for review. It adds
-versioned runner-profile and evidence-ledger schemas, examples, standalone CLI
-validation, and tests. It deliberately does not generate schedules yet.
+Implementation status: Phase 1 Increments 1 and 2 are implemented for review.
+They add versioned runner-profile, evidence-ledger, and training-policy
+documents; standalone validation; deterministic baseline and target assessment;
+explanations; and tests. They deliberately do not generate schedules yet.
 
 ## Direction
 
@@ -476,10 +477,10 @@ becoming burdensome.
 
 ### Increment 2: policy and baseline
 
-- Review the initial research queue.
-- Produce `half-marathon-v1`.
-- Implement baseline and goal assessment.
-- Render explanations and confidence-reducing missing data.
+- [x] Review the initial research queue.
+- [x] Produce `half-marathon-v1`.
+- [x] Implement baseline and goal assessment.
+- [x] Render explanations and confidence-reducing missing data.
 
 Review gate: inspect policy rules and baseline assessments for representative
 profiles.

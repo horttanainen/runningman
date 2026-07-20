@@ -1,5 +1,6 @@
 const std = @import("std");
 const activity = @import("activity.zig");
+const assessment = @import("assessment.zig");
 const check_in = @import("check_in.zig");
 const date = @import("date.zig");
 const evidence_ledger = @import("evidence_ledger.zig");
@@ -9,10 +10,13 @@ const report = @import("report.zig");
 const runner_profile = @import("runner_profile.zig");
 const schedule = @import("schedule.zig");
 const store = @import("store.zig");
+const training_policy = @import("training_policy.zig");
 const workout_detail = @import("workout.zig");
 
 const Io = std.Io;
 const default_data_path = "runningman-data.jsonl";
+const default_policy_path = "policies/half-marathon-v1.json";
+const default_evidence_path = "evidence/half-marathon-v1.json";
 
 const LogCommand = struct {
     target_date: date.Date,
@@ -111,6 +115,16 @@ fn run(
         try commandEvidence(allocator, io, writer, command_args);
         return;
     }
+    if (std.mem.eql(u8, command, "policy")) {
+        try commandPolicy(allocator, io, writer, command_args);
+        return;
+    }
+    if (std.mem.eql(u8, command, "plan") and command_args.len != 0 and
+        std.mem.eql(u8, command_args[0], "assess"))
+    {
+        try commandPlanAssessment(allocator, io, writer, command_args);
+        return;
+    }
     var storage: store.Store = .{};
     defer store.deinit(&storage, allocator);
     try store.load(&storage, allocator, io, data_path);
@@ -165,6 +179,69 @@ fn commandEvidence(
     const ledger = try evidence_ledger.load(allocator, io, args[1]);
     try evidence_ledger.validate(ledger);
     try evidence_ledger.printSummary(writer, ledger);
+}
+
+fn commandPolicy(
+    allocator: std.mem.Allocator,
+    io: Io,
+    writer: *Io.Writer,
+    args: []const []const u8,
+) !void {
+    if (args.len < 2 or !std.mem.eql(u8, args[0], "validate")) {
+        return error.InvalidPolicyCommand;
+    }
+    var evidence_path: []const u8 = default_evidence_path;
+    try parsePlannerFileFlags(args[2..], null, &evidence_path);
+
+    const ledger = try evidence_ledger.load(allocator, io, evidence_path);
+    try evidence_ledger.validate(ledger);
+    const policy = try training_policy.load(allocator, io, args[1]);
+    try training_policy.validate(policy, ledger);
+    try training_policy.printSummary(writer, policy);
+}
+
+fn commandPlanAssessment(
+    allocator: std.mem.Allocator,
+    io: Io,
+    writer: *Io.Writer,
+    args: []const []const u8,
+) !void {
+    if (args.len < 2) return error.PlanAssessmentProfileRequired;
+    var policy_path: []const u8 = default_policy_path;
+    var evidence_path: []const u8 = default_evidence_path;
+    try parsePlannerFileFlags(args[2..], &policy_path, &evidence_path);
+
+    const profile = try runner_profile.load(allocator, io, args[1]);
+    _ = try runner_profile.validate(profile);
+    const ledger = try evidence_ledger.load(allocator, io, evidence_path);
+    try evidence_ledger.validate(ledger);
+    const policy = try training_policy.load(allocator, io, policy_path);
+    try training_policy.validate(policy, ledger);
+    const result = try assessment.assess(profile, policy);
+    try assessment.print(writer, profile, policy, result);
+}
+
+fn parsePlannerFileFlags(
+    args: []const []const u8,
+    policy_path: ?*[]const u8,
+    evidence_path: *[]const u8,
+) !void {
+    var index: usize = 0;
+    while (index < args.len) {
+        const flag = args[index];
+        index += 1;
+        if (index >= args.len) return error.MissingFlagValue;
+        const value = args[index];
+        index += 1;
+
+        if (std.mem.eql(u8, flag, "--policy") and policy_path != null) {
+            policy_path.?.* = value;
+        } else if (std.mem.eql(u8, flag, "--evidence")) {
+            evidence_path.* = value;
+        } else {
+            return error.UnknownFlag;
+        }
+    }
 }
 
 fn commandInit(
@@ -738,6 +815,8 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman [--data PATH] compare [--weeks N] [--ending DATE]
         \\  runningman profile validate RUNNER_PROFILE.json
         \\  runningman evidence validate EVIDENCE_LEDGER.json
+        \\  runningman policy validate POLICY.json [--evidence EVIDENCE_LEDGER.json]
+        \\  runningman plan assess RUNNER_PROFILE.json [--policy POLICY.json] [--evidence EVIDENCE_LEDGER.json]
         \\  runningman [--data PATH] plan preview REVISION.json
         \\  runningman [--data PATH] plan apply REVISION.json
         \\  runningman [--data PATH] review [--weeks N] [--ending DATE]
@@ -818,7 +897,47 @@ fn friendlyError(err: anyerror) []const u8 {
         error.EvidencePlanningImplicationRequired => "every evidence entry needs a `planning_implication`",
         error.EmptyPolicyRuleId => "policy rule IDs cannot be empty",
         error.DuplicatePolicyRuleId => "policy rule IDs within an evidence entry must be unique",
-        error.MissingPlanAction => "plan requires `preview REVISION.json` or `apply REVISION.json`",
+        error.InvalidPolicyCommand => "policy requires `validate POLICY.json [--evidence EVIDENCE_LEDGER.json]`",
+        error.TrainingPolicyFileNotFound => "the training policy JSON file was not found",
+        error.InvalidTrainingPolicyFile => "the training policy is not valid JSON in the expected format",
+        error.UnsupportedTrainingPolicySchema => "training policy schema_version must be 1",
+        error.TrainingPolicyIdentityRequired => "training policy needs a non-empty policy_id and positive policy_version",
+        error.TrainingPolicyEvidenceLedgerMismatch => "the policy and evidence ledger IDs do not match",
+        error.TrainingPolicyNeedsRules => "the training policy needs at least one rule",
+        error.IncompleteTrainingPolicyRule => "every policy rule needs an ID, category, and summary",
+        error.DuplicateTrainingPolicyRuleId => "training policy rule IDs must be unique",
+        error.UnjustifiedTrainingPolicyRule => "every policy rule needs evidence or an explicit product assumption",
+        error.EmptyTrainingPolicyEvidenceId => "policy rule evidence IDs cannot be empty",
+        error.DuplicateTrainingPolicyEvidenceId => "evidence IDs within a policy rule must be unique",
+        error.UnknownTrainingPolicyEvidenceId => "a policy rule refers to unknown evidence",
+        error.InvalidTrainingPolicySupport => "the policy contains invalid scope boundaries",
+        error.InvalidTrainingPolicyPeriodization => "the policy contains invalid periodization boundaries",
+        error.InvalidTrainingPolicyPhase => "every policy phase needs an ID and purpose",
+        error.DuplicateTrainingPolicyPhase => "policy phase IDs must be unique",
+        error.InvalidBaselineAssessmentPolicy => "the policy contains invalid baseline-assessment parameters",
+        error.InvalidVolumeProgressionPolicy => "the policy contains invalid volume-progression parameters",
+        error.InvalidRecoveryPolicy => "the policy contains invalid recovery-week parameters",
+        error.InvalidIntensityDistributionPolicy => "the policy contains invalid intensity-distribution parameters",
+        error.InvalidLongRunPolicy => "the policy contains invalid long-run parameters",
+        error.InvalidTaperPolicy => "the taper must have valid duration and reduction ranges while retaining intensity and core frequency",
+        error.InvalidSchedulingPolicy => "the policy needs at least one easy or rest day between demanding sessions",
+        error.InvalidOptionalRunPolicy => "optional runs must be bounded and removable without rescheduling",
+        error.InvalidMissedWorkoutPolicy => "missed workouts cannot be stacked and must preserve hard-session spacing",
+        error.TrainingPolicyNeedsWorkoutRecipes => "the policy needs workout categories and recipes",
+        error.InvalidWorkoutCategory => "every workout category needs an ID, intensity class, and description",
+        error.DuplicateWorkoutCategory => "workout category IDs must be unique",
+        error.InvalidWorkoutRecipe => "every workout recipe needs an ID, description, and at least one phase",
+        error.DuplicateWorkoutRecipe => "workout recipe IDs must be unique",
+        error.UnknownWorkoutCategory => "a workout recipe refers to an unknown category",
+        error.UnknownWorkoutPhase => "a workout recipe refers to an unknown phase",
+        error.UnknownTrainingPolicyRuleReference => "a policy section or workout recipe refers to an unknown rule",
+        error.MissingEvidencePolicyBacklink => "a cited evidence entry does not link back to its policy rule",
+        error.UnknownEvidencePolicyRule => "the evidence ledger links to an unknown policy rule",
+        error.MissingPolicyEvidenceBacklink => "an evidence policy link is missing from the corresponding rule",
+        error.PlanAssessmentProfileRequired => "plan assess requires a runner profile JSON file",
+        error.ProfileOutsidePolicyScope => "the runner profile is outside the selected policy's supported scope",
+        error.MissingAssessmentPolicyRule => "the policy is missing a rule required to explain the assessment",
+        error.MissingPlanAction => "plan requires `assess PROFILE.json`, `preview REVISION.json`, or `apply REVISION.json`",
         error.PlanFileRequired => "plan preview/apply requires exactly one revision JSON file",
         error.UnknownPlanAction => "plan action must be preview or apply",
         error.PlanAlreadyPeriodized => "the latest schedule is already periodized",

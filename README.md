@@ -8,24 +8,56 @@ ChatGPT.
 The training log is append-only JSONL. Corrections and schedule changes add new
 records instead of silently changing history.
 
-## Validate planning inputs
+## Planner inputs and assessment
 
 Phase 1 of the general half-marathon planner begins with standalone, versioned
-runner-profile and evidence-ledger documents. Validate the committed examples:
+runner-profile, evidence-ledger, and policy documents. Validate them:
 
 ```sh
 ./zig-out/bin/runningman profile validate examples/runner-profile.json
-./zig-out/bin/runningman evidence validate examples/evidence-ledger.json
+./zig-out/bin/runningman evidence validate evidence/half-marathon-v1.json
+./zig-out/bin/runningman policy validate policies/half-marathon-v1.json
 ```
 
-These commands do not read or create the personal training log. Increment 1
-validates planning inputs only; generating a schedule from a runner profile will
-be added after the input model has been reviewed.
+Assess the example runner's baseline and target:
 
-The canonical JSON Schemas are:
+```sh
+./zig-out/bin/runningman plan assess examples/runner-profile.json
+```
+
+These commands do not read or create the personal training log. Assessment
+reports:
+
+- the primary recent performance used;
+- a current half-marathon equivalent;
+- estimate uncertainty;
+- a bounded training-improvement assumption;
+- a supported race-date outcome range;
+- a rounded target recommendation;
+- target classification and explanation;
+- effort and pace anchors; and
+- the effective policy rules.
+
+Target classifications are:
+
+- `completion`: there is not enough performance evidence for a numeric target;
+- `recommended`: no target was supplied, so the planner proposes one;
+- `supported`: the requested target is no faster than the supported fast
+  boundary;
+- `aspirational`: the target is outside the range but may remain motivational;
+  and
+- `infeasible`: the target is beyond the strongest outcome supported by the
+  profile, plan window, and policy.
+
+An aspirational or infeasible target is never used as the training-pace anchor.
+Schedule generation remains an Increment 3 feature; assessment does not write or
+apply a plan.
+
+The canonical JSON Schemas include:
 
 - [`schemas/runner-profile-v1.schema.json`](schemas/runner-profile-v1.schema.json)
 - [`schemas/evidence-ledger-v1.schema.json`](schemas/evidence-ledger-v1.schema.json)
+- [`schemas/training-policy-v1.schema.json`](schemas/training-policy-v1.schema.json)
 
 Runner inputs are represented as a `value` plus one of these sources:
 
@@ -45,7 +77,12 @@ The first profile version supports half-marathon plans spanning 8–24 weeks and
 availability, numeric baselines, recent performances, and known unavailable
 dates. The evidence ledger requires traceable citations, populations,
 comparisons, outcomes, limitations, confidence, planning implications, and
-stable policy-rule links.
+stable policy-rule links. Policy validation checks numerical boundaries,
+workout recipes, unique identifiers, and reciprocal links between every rule
+and evidence entry.
+
+The policy and assessment design is explained in
+[`docs/half-marathon-v1-policy.md`](docs/half-marathon-v1-policy.md).
 
 ## Build and test
 
