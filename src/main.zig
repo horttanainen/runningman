@@ -5,6 +5,7 @@ const check_in = @import("check_in.zig");
 const date = @import("date.zig");
 const evidence_ledger = @import("evidence_ledger.zig");
 const model = @import("model.zig");
+const plan_generator = @import("plan_generator.zig");
 const plan_revision = @import("plan_revision.zig");
 const report = @import("report.zig");
 const runner_profile = @import("runner_profile.zig");
@@ -461,6 +462,11 @@ fn commandPlan(
         return;
     }
 
+    if (std.mem.eql(u8, action, "generate")) {
+        try commandPlanGenerate(allocator, io, writer, data_path, storage, args[1..]);
+        return;
+    }
+
     if (args.len != 2) return error.PlanFileRequired;
     const revision = try plan_revision.load(allocator, io, args[1]);
     if (std.mem.eql(u8, action, "preview")) {
@@ -479,6 +485,73 @@ fn commandPlan(
         );
     } else {
         return error.UnknownPlanAction;
+    }
+}
+
+fn commandPlanGenerate(
+    allocator: std.mem.Allocator,
+    io: Io,
+    writer: *Io.Writer,
+    data_path: []const u8,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    if (args.len == 0) return error.PlanGenerationProfileRequired;
+    const profile_path = args[0];
+    var policy_path: []const u8 = default_policy_path;
+    var evidence_path: []const u8 = default_evidence_path;
+    var output_path: ?[]const u8 = null;
+
+    var index: usize = 1;
+    while (index < args.len) {
+        const flag = args[index];
+        index += 1;
+        if (index >= args.len) return error.MissingFlagValue;
+        const value = args[index];
+        index += 1;
+
+        if (std.mem.eql(u8, flag, "--policy")) {
+            policy_path = value;
+        } else if (std.mem.eql(u8, flag, "--evidence")) {
+            evidence_path = value;
+        } else if (std.mem.eql(u8, flag, "--output")) {
+            output_path = value;
+        } else {
+            return error.UnknownFlag;
+        }
+    }
+    const destination = output_path orelse return error.PlanGenerationOutputRequired;
+
+    const profile = try runner_profile.load(allocator, io, profile_path);
+    _ = try runner_profile.validate(profile);
+    const ledger = try evidence_ledger.load(allocator, io, evidence_path);
+    try evidence_ledger.validate(ledger);
+    const policy = try training_policy.load(allocator, io, policy_path);
+    try training_policy.validate(policy, ledger);
+    const result = try assessment.assess(profile, policy);
+    const revision = try plan_generator.generate(
+        allocator,
+        profile,
+        policy,
+        result,
+        storage.max_schedule_id,
+    );
+    try plan_generator.save(io, destination, revision);
+    try writer.print(
+        "Generated a validated {d}-day plan through {s}.\n" ++
+            "Proposal: {s}\n",
+        .{ revision.workouts.len, revision.race_date, destination },
+    );
+    if (std.mem.eql(u8, data_path, default_data_path)) {
+        try writer.print(
+            "Review it with: runningman plan preview {s}\n",
+            .{destination},
+        );
+    } else {
+        try writer.print(
+            "Review it with: runningman --data {s} plan preview {s}\n",
+            .{ data_path, destination },
+        );
     }
 }
 
@@ -817,6 +890,7 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman evidence validate EVIDENCE_LEDGER.json
         \\  runningman policy validate POLICY.json [--evidence EVIDENCE_LEDGER.json]
         \\  runningman plan assess RUNNER_PROFILE.json [--policy POLICY.json] [--evidence EVIDENCE_LEDGER.json]
+        \\  runningman [--data PATH] plan generate RUNNER_PROFILE.json --output PROPOSED_PLAN.json [--policy POLICY.json] [--evidence EVIDENCE_LEDGER.json]
         \\  runningman [--data PATH] plan preview REVISION.json
         \\  runningman [--data PATH] plan apply REVISION.json
         \\  runningman [--data PATH] review [--weeks N] [--ending DATE]
@@ -937,9 +1011,54 @@ fn friendlyError(err: anyerror) []const u8 {
         error.PlanAssessmentProfileRequired => "plan assess requires a runner profile JSON file",
         error.ProfileOutsidePolicyScope => "the runner profile is outside the selected policy's supported scope",
         error.MissingAssessmentPolicyRule => "the policy is missing a rule required to explain the assessment",
-        error.MissingPlanAction => "plan requires `assess PROFILE.json`, `preview REVISION.json`, or `apply REVISION.json`",
+        error.MissingPlanAction => "plan requires `assess`, `generate`, `preview`, or `apply`",
+        error.PlanGenerationProfileRequired => "plan generate requires a runner profile JSON file",
+        error.PlanGenerationOutputRequired => "plan generate requires `--output PROPOSED_PLAN.json`",
+        error.RaceDateUnavailable => "the race date cannot be listed as unavailable",
+        error.PlanTooShortForPolicyPhases => "the plan is too short for the policy's required phases",
+        error.NotEnoughAvailableRunningDays => "a week has fewer than three available core running days",
+        error.LongRunCannotBeScheduled => "a long run cannot be placed on an available core day",
+        error.QualityWorkoutCannotBeScheduled => "a quality workout cannot be placed with the required demanding-session spacing",
+        error.GeneratedPlanStartMismatch => "generated plan start does not match the runner profile",
+        error.GeneratedRaceDateMismatch => "generated race date does not match the runner profile",
+        error.GeneratedPlanMissingDays => "generated plan must represent every calendar day",
+        error.GeneratedPlanNeedsAssessment => "generated plan must include its baseline assessment",
+        error.GeneratedAssessmentMismatch => "generated assessment does not match the planner inputs",
+        error.GeneratedPlanNeedsWeeklySummary => "generated plan must include its weekly macrocycle summary",
+        error.GeneratedWeeklySummaryCountMismatch => "generated weekly summary count does not match its daily schedule",
+        error.GeneratedWeeklySummaryDatesMismatch => "generated weekly summary dates do not match its daily schedule",
+        error.GeneratedWeeklySummaryMismatch => "generated weekly summary does not match its daily schedule",
+        error.GeneratedPlanDatesNotConsecutive => "generated plan dates are not consecutive",
+        error.GeneratedWeekHasMultiplePhases => "a generated week contains more than one phase",
+        error.GeneratedPhaseOrderInvalid => "generated phases are out of order",
+        error.GeneratedUnknownPhase => "generated plan contains an unknown phase",
+        error.GeneratedPlanNeedsOneRace => "generated plan must contain exactly one race",
+        error.GeneratedRaceOnWrongDate => "generated race is not on the goal date",
+        error.GeneratedWorkoutOnUnavailableDate => "generated plan schedules running on an unavailable date",
+        error.GeneratedWorkoutOutsideAvailability => "generated plan schedules a core run outside the allowed weekdays",
+        error.GeneratedOptionalRunWithoutOptionalDay => "generated plan has an optional run without an optional recovery day",
+        error.GeneratedOptionalRunOnWrongDay => "generated optional run is on the wrong weekday",
+        error.GeneratedWorkoutNeedsDistance => "generated running workouts must have explicit distance segments",
+        error.GeneratedDemandingSessionsTooClose => "generated demanding sessions do not have enough easy or rest days between them",
+        error.GeneratedTooManyQualitySessions => "generated week exceeds the policy's quality-session limit",
+        error.GeneratedIntensityDistributionInvalid => "generated low-intensity share is outside policy bounds",
+        error.GeneratedOptionalRunTooLong => "generated optional run exceeds its weekly-volume allowance",
+        error.GeneratedWeeklyVolumeAbovePeak => "generated weekly volume exceeds the baseline-relative peak limit",
+        error.GeneratedWeeklyVolumeIncreaseTooLarge => "generated weekly volume increases too quickly",
+        error.GeneratedLongRunShareTooHigh => "generated long run exceeds its allowed share of weekly volume",
+        error.GeneratedLongRunTooLong => "generated long run exceeds the policy maximum",
+        error.GeneratedLongRunIncreaseTooLarge => "generated long run increases too quickly",
+        error.GeneratedRecoveryWithoutBuild => "generated recovery week has no preceding build volume",
+        error.GeneratedRecoveryTimingInvalid => "generated recovery week is not after the policy-required number of build weeks",
+        error.GeneratedRecoveryVolumeInvalid => "generated recovery-week volume is outside policy bounds",
+        error.GeneratedRequiredPhaseTooShort => "generated foundation or race-specific phase is shorter than policy allows",
+        error.GeneratedTaperLengthInvalid => "generated taper length is outside policy bounds",
+        error.GeneratedPlanMustEndInRacePhase => "generated plan must end in the race phase",
+        error.GeneratedTaperWithoutPeak => "generated taper has no preceding peak volume",
+        error.GeneratedTaperVolumeInvalid => "generated taper reduction is outside policy bounds",
+        error.GeneratedTaperMissingIntensity => "generated taper does not retain a quality session",
         error.PlanFileRequired => "plan preview/apply requires exactly one revision JSON file",
-        error.UnknownPlanAction => "plan action must be preview or apply",
+        error.UnknownPlanAction => "plan action must be generate, preview, or apply",
         error.PlanAlreadyPeriodized => "the latest schedule is already periodized",
         error.RevisionFileNotFound => "the revision JSON file was not found",
         error.InvalidRevisionFile => "the revision file is not valid JSON in the expected format",

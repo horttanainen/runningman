@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/horttanainen/runningman/schemas/proposed-plan-v1.schema.json",
+  "title": "Runningman proposed plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "base_schedule_id",
+    "effective_from",
+    "reason",
+    "name",
+    "goal",
+    "availability",
+    "intensity_guidance",
+    "pace_profile",
+    "race_date",
+    "assessment",
+    "weeks",
+    "workouts"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "base_schedule_id": { "type": "integer", "minimum": 1 },
+    "effective_from": { "$ref": "#/$defs/date" },
+    "reason": { "$ref": "#/$defs/non_empty_string" },
+    "name": { "type": "string" },
+    "goal": { "type": "string" },
+    "availability": { "type": "string" },
+    "intensity_guidance": { "type": "string" },
+    "pace_profile": { "type": "string" },
+    "race_date": { "$ref": "#/$defs/date" },
+    "assessment": { "$ref": "#/$defs/assessment" },
+    "weeks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/week" }
+    },
+    "workouts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/workout" }
+    }
+  },
+  "$defs": {
+    "non_empty_string": { "type": "string", "minLength": 1 },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "policy_id", "policy_version", "confidence", "feasibility"],
+      "properties": {
+        "profile_id": { "$ref": "#/$defs/non_empty_string" },
+        "policy_id": { "$ref": "#/$defs/non_empty_string" },
+        "policy_version": { "type": "integer", "minimum": 1 },
+        "confidence": { "enum": ["unavailable", "low", "moderate", "high"] },
+        "feasibility": { "enum": ["completion", "recommended", "supported", "aspirational", "infeasible"] },
+        "recommended_target_seconds": { "type": "integer", "minimum": 1 },
+        "requested_target_seconds": { "type": "integer", "minimum": 1 },
+        "training_pace_anchor_seconds": { "type": "integer", "minimum": 1 },
+        "expected_shortfall_seconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "week": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["week", "start_date", "end_date", "phase", "target_core_distance_km", "long_run_distance_km"],
+      "properties": {
+        "week": { "type": "integer", "minimum": 1, "maximum": 24 },
+        "start_date": { "$ref": "#/$defs/date" },
+        "end_date": { "$ref": "#/$defs/date" },
+        "phase": {
+          "enum": ["foundation", "build", "recovery", "race_specific", "taper", "race"]
+        },
+        "target_core_distance_km": { "type": "number", "minimum": 0 },
+        "long_run_distance_km": { "type": "number", "minimum": 0 }
+      }
+    },
+    "workout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date", "phase", "kind", "intensity", "details", "segments"],
+      "properties": {
+        "date": { "$ref": "#/$defs/date" },
+        "phase": {
+          "enum": ["foundation", "build", "recovery", "race_specific", "taper", "race"]
+        },
+        "kind": { "$ref": "#/$defs/non_empty_string" },
+        "intensity": { "$ref": "#/$defs/non_empty_string" },
+        "details": { "$ref": "#/$defs/non_empty_string" },
+        "distance_min_km": { "type": "number", "minimum": 0 },
+        "distance_max_km": { "type": "number", "minimum": 0 },
+        "segments": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/segment" }
+        }
+      }
+    },
+    "segment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "label"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/non_empty_string" },
+        "label": { "$ref": "#/$defs/non_empty_string" },
+        "repetitions": { "type": "integer", "minimum": 1, "maximum": 255 },
+        "distance_km": { "type": "number", "exclusiveMinimum": 0 },
+        "duration_seconds": { "type": "integer", "minimum": 1 },
+        "pace_fast_seconds_per_km": { "type": "integer", "minimum": 1 },
+        "pace_slow_seconds_per_km": { "type": "integer", "minimum": 1 },
+        "recovery_seconds": { "type": "integer", "minimum": 1 },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

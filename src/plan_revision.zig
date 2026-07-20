@@ -17,7 +17,30 @@ pub const RevisionFile = struct {
     intensity_guidance: []const u8 = "",
     pace_profile: []const u8 = "",
     race_date: []const u8 = "",
+    assessment: ?ProposedAssessment = null,
+    weeks: ?[]const ProposedWeek = null,
     workouts: []const ProposedWorkout,
+};
+
+pub const ProposedAssessment = struct {
+    profile_id: []const u8,
+    policy_id: []const u8,
+    policy_version: u16,
+    confidence: []const u8,
+    feasibility: []const u8,
+    recommended_target_seconds: ?u32 = null,
+    requested_target_seconds: ?u32 = null,
+    training_pace_anchor_seconds: ?u32 = null,
+    expected_shortfall_seconds: ?u32 = null,
+};
+
+pub const ProposedWeek = struct {
+    week: u8,
+    start_date: []const u8,
+    end_date: []const u8,
+    phase: []const u8,
+    target_core_distance_km: f64,
+    long_run_distance_km: f64,
 };
 
 pub const ProposedWorkout = struct {
@@ -194,6 +217,47 @@ pub fn printPreview(
         },
     );
 
+    if (revision.assessment) |result| {
+        try writer.print(
+            "Assessment: {s}; {s} v{d}; {s} confidence; {s}\n",
+            .{
+                result.profile_id,
+                result.policy_id,
+                result.policy_version,
+                result.confidence,
+                result.feasibility,
+            },
+        );
+        if (result.training_pace_anchor_seconds) |target| {
+            try writer.writeAll("Training pace anchor: ");
+            try printDuration(writer, target);
+            try writer.writeByte('\n');
+        } else {
+            try writer.writeAll("Training pace anchor: none; effort guidance is used\n");
+        }
+        try writer.writeByte('\n');
+    }
+    if (revision.weeks) |weeks| {
+        try writer.writeAll("Macrocycle\n");
+        for (weeks) |week| {
+            try writer.print(
+                "  Week {d} ({s}–{s}): {s}, {d:.1} km core",
+                .{
+                    week.week,
+                    week.start_date,
+                    week.end_date,
+                    week.phase,
+                    week.target_core_distance_km,
+                },
+            );
+            if (week.long_run_distance_km > 0) {
+                try writer.print(", {d:.1} km long run", .{week.long_run_distance_km});
+            }
+            try writer.writeByte('\n');
+        }
+        try writer.writeByte('\n');
+    }
+
     var previous_week: ?u8 = null;
     const parent = storage.schedules.get(revision.base_schedule_id).?;
     const start = try date.parse(parent.start_date);
@@ -347,4 +411,11 @@ fn sameSegment(left: model.Segment, right: model.Segment) bool {
 
 fn valueOrFallback(value: []const u8, fallback: []const u8) []const u8 {
     return if (value.len == 0) fallback else value;
+}
+
+fn printDuration(writer: *Io.Writer, total_seconds: u32) !void {
+    const hours = total_seconds / 3600;
+    const minutes = total_seconds % 3600 / 60;
+    const seconds = total_seconds % 60;
+    try writer.print("{d}:{d:0>2}:{d:0>2}", .{ hours, minutes, seconds });
 }

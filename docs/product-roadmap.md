@@ -7,10 +7,11 @@ This document records the intended technical direction for `runningman` and the
 detailed design for Phase 1. The phase is being implemented through explicit
 review gates.
 
-Implementation status: Phase 1 Increments 1 and 2 are implemented for review.
-They add versioned runner-profile, evidence-ledger, and training-policy
-documents; standalone validation; deterministic baseline and target assessment;
-explanations; and tests. They deliberately do not generate schedules yet.
+Implementation status: Phase 1 Increments 1–3 are implemented for review. They
+add versioned runner-profile, evidence-ledger, training-policy, and proposed-plan
+documents; deterministic baseline assessment and schedule generation; an
+independent plan validator; preview/apply compatibility; explanations; and
+boundary tests.
 
 ## Direction
 
@@ -487,10 +488,10 @@ profiles.
 
 ### Increment 3: generator and validator
 
-- Generate macrocycles.
-- Allocate structured workouts.
-- Run independent validation.
-- Produce proposed-plan JSON compatible with preview/apply.
+- [x] Generate macrocycles.
+- [x] Allocate structured workouts.
+- [x] Run independent validation.
+- [x] Produce proposed-plan JSON compatible with preview/apply.
 
 Review gate: inspect several complete schedules, including boundary cases.
 

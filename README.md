@@ -50,14 +50,28 @@ Target classifications are:
   profile, plan window, and policy.
 
 An aspirational or infeasible target is never used as the training-pace anchor.
-Schedule generation remains an Increment 3 feature; assessment does not write or
-apply a plan.
+Assessment does not write or apply a plan.
+
+Generate a deterministic proposal against an initialized append-only data file:
+
+```sh
+./zig-out/bin/runningman plan generate examples/runner-profile.json \
+  --output proposed-plan.json
+./zig-out/bin/runningman plan preview proposed-plan.json
+./zig-out/bin/runningman plan apply proposed-plan.json
+```
+
+Generation allocates the macrocycle, weekly volume, long-run progression, and
+structured daily workouts before running an independent policy validator. The
+proposal is never applied automatically. With no supported pace anchor, the
+plan retains effort guidance without inventing pace or duration precision.
 
 The canonical JSON Schemas include:
 
 - [`schemas/runner-profile-v1.schema.json`](schemas/runner-profile-v1.schema.json)
 - [`schemas/evidence-ledger-v1.schema.json`](schemas/evidence-ledger-v1.schema.json)
 - [`schemas/training-policy-v1.schema.json`](schemas/training-policy-v1.schema.json)
+- [`schemas/proposed-plan-v1.schema.json`](schemas/proposed-plan-v1.schema.json)
 
 Runner inputs are represented as a `value` plus one of these sources:
 

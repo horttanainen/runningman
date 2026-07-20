@@ -34,6 +34,58 @@ test ! -e "$data_file"
 "$binary" --data "$data_file" init 2026-07-20 > "$temporary_directory/init.txt"
 grep -q "immutable 13-week periodized running schedule" "$temporary_directory/init.txt"
 
+generated_data_file="$temporary_directory/generated-data.jsonl"
+generated_plan="$temporary_directory/generated-plan.json"
+generated_plan_again="$temporary_directory/generated-plan-again.json"
+"$binary" --data "$generated_data_file" init 2026-07-20 >/dev/null
+"$binary" --data "$generated_data_file" plan generate examples/runner-profile.json \
+    --output "$generated_plan" > "$temporary_directory/generate.txt"
+grep -q "Generated a validated 91-day plan through 2026-10-18" "$temporary_directory/generate.txt"
+grep -Fq "Review it with: runningman --data $generated_data_file plan preview $generated_plan" \
+    "$temporary_directory/generate.txt"
+if grep -q -- "--data DATA" "$temporary_directory/generate.txt"; then
+    echo "expected generated review command to use the selected data path" >&2
+    exit 1
+fi
+grep -q '"phase": "recovery"' "$generated_plan"
+grep -q '"phase": "race_specific"' "$generated_plan"
+grep -q '"phase": "taper"' "$generated_plan"
+"$binary" --data "$generated_data_file" plan generate examples/runner-profile.json \
+    --output "$generated_plan_again" >/dev/null
+cmp "$generated_plan" "$generated_plan_again"
+"$binary" --data "$generated_data_file" plan preview "$generated_plan" \
+    > "$temporary_directory/generated-preview.txt"
+grep -q "Expected total time" "$temporary_directory/generated-preview.txt"
+grep -q "Aerobic intervals: 3 repetitions totalling 3.0 km" "$temporary_directory/generated-preview.txt"
+grep -q "3 × 1.0 km" "$temporary_directory/generated-preview.txt"
+grep -q "2:00 easy recovery between repetitions" "$temporary_directory/generated-preview.txt"
+if grep -q "Controlled aerobic intervals: 3.0 km" "$temporary_directory/generated-preview.txt"; then
+    echo "expected generated intervals to include repetitions and recovery" >&2
+    exit 1
+fi
+grep -q "Assessment: example-half-marathon-runner; half-marathon-v1 v1" "$temporary_directory/generated-preview.txt"
+grep -q "Macrocycle" "$temporary_directory/generated-preview.txt"
+grep -q "Week 13 .*race, 33.1 km core" "$temporary_directory/generated-preview.txt"
+grep -q "No data was changed" "$temporary_directory/generated-preview.txt"
+"$binary" --data "$generated_data_file" plan apply "$generated_plan" \
+    > "$temporary_directory/generated-apply.txt"
+grep -q "Applied schedule #2" "$temporary_directory/generated-apply.txt"
+
+for fixture in \
+    tests/fixtures/runner-profile-8-week-3-day.json \
+    tests/fixtures/runner-profile-24-week-6-day.json
+do
+    fixture_name=$(basename "$fixture" .json)
+    fixture_data="$temporary_directory/$fixture_name.jsonl"
+    fixture_plan="$temporary_directory/$fixture_name-plan.json"
+    "$binary" --data "$fixture_data" init 2026-07-20 >/dev/null
+    "$binary" --data "$fixture_data" plan generate "$fixture" \
+        --output "$fixture_plan" >/dev/null
+    "$binary" --data "$fixture_data" plan preview "$fixture_plan" >/dev/null
+done
+test "$(grep -c '"date"' "$temporary_directory/runner-profile-8-week-3-day-plan.json")" = 56
+test "$(grep -c '"date"' "$temporary_directory/runner-profile-24-week-6-day-plan.json")" = 168
+
 "$binary" --data "$data_file" today 2026-07-20 > "$temporary_directory/today.txt"
 grep -q "Core easy aerobic run" "$temporary_directory/today.txt"
 grep -q "6.0 km at 6:15–7:00/km (37:30–42:00)" "$temporary_directory/today.txt"
