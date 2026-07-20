@@ -8,16 +8,16 @@ ChatGPT.
 The training log is append-only JSONL. Corrections and schedule changes add new
 records instead of silently changing history.
 
-## Build
+## Build and test
 
 Zig 0.16 is required:
 
 ```sh
-zig build
-zig build test
+./check.sh
 ```
 
-The executable is written to `zig-out/bin/runningman`.
+The script formats the Zig source, builds the executable, and runs unit and CLI
+tests. The executable is written to `zig-out/bin/runningman`.
 
 ## Initialize the plan
 
@@ -27,11 +27,26 @@ Choose the Monday on which week 1 starts:
 ./zig-out/bin/runningman init 2026-07-20
 ```
 
-Weeks 1–11 reproduce the supplied plan. The source only says “race week” for
-week 12, so those seven workouts remain explicitly unspecified until a race
-date and taper are provided.
+The generated plan has 13 complete weeks and ends with the half marathon on
+Sunday of week 13. For a start date of 2026-07-20, race day is 2026-10-18.
+
+The four core runs are Monday, Tuesday, Thursday, and Saturday. Wednesday is an
+optional recovery run, and Friday and Sunday are rest days (except race day).
+Training progresses through these phases:
+
+| Weeks | Phase | Main progression |
+|---|---|---|
+| 1–3 | Foundation | Establish consistent easy volume and controlled quality |
+| 4 | Recovery | Reduce volume and intensity |
+| 5–7 | Build | Increase long runs, intervals, and sustained work |
+| 8 | Recovery | Absorb the build before race-specific work |
+| 9–11 | Race-specific | Longer half-marathon-effort segments and peak long runs |
+| 12 | Taper | Reduce volume while retaining short controlled intensity |
+| 13 | Race | Short easy running, rest, and the half marathon |
 
 By default, data is stored in `runningman-data.jsonl` in the current directory.
+Root-level JSONL data files and generated weekly check-ins are gitignored, so
+personal training data is not included in repository commits.
 Use a different file by placing `--data PATH` before the command:
 
 ```sh
@@ -47,8 +62,9 @@ With no command, `runningman` shows today:
 ./zig-out/bin/runningman today 2026-07-25
 ```
 
-The output includes the workout instructions, intensity, distance expectation,
-schedule revision ID, workout ID, and any recorded result.
+The output includes the phase, workout instructions, intensity, distance,
+segment pace ranges, time implied by each distance/pace pair, expected total
+time, schedule revision ID, workout ID, and any recorded result.
 
 See a detailed upcoming schedule, starting today by default:
 
@@ -150,8 +166,7 @@ never treated as rest.
 Generate a Markdown report:
 
 ```sh
-./zig-out/bin/runningman export \
-  --format markdown \
+./zig-out/bin/runningman review \
   --weeks 1 \
   --ending 2026-07-26 > weekly-check-in.md
 ```
@@ -165,7 +180,10 @@ It contains:
 - Daily workout expectations
 - Actual results, RPE, heart rate, pain, reasons, and notes
 - Next-morning Oura Sleep and Readiness Scores
-- The latest known schedule revision and the upcoming seven planned days
+- The latest known schedule revision
+- Every remaining planned day through race day, including structured segments,
+  pace ranges, and expected duration
+- The JSON contract for proposing a complete replacement program
 
 The raw audit log can also be exported:
 
@@ -173,28 +191,73 @@ The raw audit log can also be exported:
 ./zig-out/bin/runningman export --format jsonl > training-export.jsonl
 ```
 
-## Revise a workout
+Give the Markdown file to ChatGPT or Codex for a weekly review. A review does
+not have to change the program. If a change is recommended, ask it to create a
+revision JSON file that follows the contract in the report and replaces every
+remaining day through race day.
+
+## Revise the remaining program
+
+A revision targets the current schedule ID, so an older AI response cannot
+silently overwrite a newer program. Previewing is read-only:
 
 ```sh
-./zig-out/bin/runningman revise 2026-08-01 \
-  --kind long \
-  --intensity "Easy, conversational" \
-  --min-km 12 \
-  --max-km 12 \
-  --details "Reduced long run: 12 km at easy effort." \
-  --reason "Accumulated fatigue after week 2"
+./zig-out/bin/runningman plan preview revised-program.json
 ```
 
-The command creates a new schedule revision containing a complete copy of all
-84 planned days with the selected workout changed. The previous schedule and
-all activities linked to it remain untouched.
+After inspecting the full preview, apply it:
+
+```sh
+./zig-out/bin/runningman plan apply revised-program.json
+```
+
+The file has this shape:
+
+```json
+{
+  "schema_version": 1,
+  "base_schedule_id": 1,
+  "effective_from": "2026-08-03",
+  "reason": "Adjusted from the weekly evidence.",
+  "workouts": [
+    {
+      "date": "2026-08-03",
+      "phase": "recovery",
+      "kind": "easy",
+      "intensity": "Zone 2, conversational",
+      "details": "6 km easy.",
+      "segments": [
+        {
+          "kind": "distance",
+          "label": "Run",
+          "distance_km": 6,
+          "pace_fast_seconds_per_km": 375,
+          "pace_slow_seconds_per_km": 420
+        }
+      ]
+    }
+  ]
+}
+```
+
+The real file must contain one workout or rest entry for every consecutive date
+from `effective_from` through the schedule's race date. A segment can prescribe
+`distance_km` with a fast/slow pace range, or `duration_seconds`; repetitions
+and recovery are represented with `repetitions` and `recovery_seconds`.
+
+Applying creates a new immutable schedule snapshot. Dates before
+`effective_from` are copied into that snapshot, while the full remaining
+program comes from the revision file. Previous schedules remain present, and
+recorded activities remain linked to the exact schedule and workout that were
+in effect when they were logged.
 
 ## Data model
 
 Every JSON line has `schema_version: 1` and one of these event types:
 
 - `schedule`: immutable context and revision metadata
-- `workout`: one dated workout in a complete schedule snapshot
+- `workout`: one dated workout in a complete schedule snapshot, with structured
+  segments and pace ranges
 - `activity`: an actual result linked to the exact schedule and workout
 - `morning_check_in`: Oura Sleep and Readiness Scores for a dated morning
 

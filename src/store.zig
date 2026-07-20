@@ -159,6 +159,8 @@ fn applyEvent(storage: *Store, allocator: std.mem.Allocator, event: model.Event)
                 .baseline = event.baseline orelse "",
                 .availability = event.availability orelse "",
                 .intensity_guidance = event.intensity_guidance orelse "",
+                .pace_profile = event.pace_profile orelse "",
+                .race_date = event.race_date orelse "",
                 .source = event.source orelse "",
                 .recorded_at = event.recorded_at,
             };
@@ -172,11 +174,13 @@ fn applyEvent(storage: *Store, allocator: std.mem.Allocator, event: model.Event)
                 .date = event.date orelse return error.InvalidDataFile,
                 .week = event.week orelse return error.InvalidDataFile,
                 .day = event.day orelse return error.InvalidDataFile,
+                .phase = event.phase orelse "legacy",
                 .kind = event.kind orelse return error.InvalidDataFile,
                 .intensity = event.intensity orelse "",
                 .distance_min_km = event.distance_min_km,
                 .distance_max_km = event.distance_max_km,
                 .details = event.details orelse return error.InvalidDataFile,
+                .segments = event.segments orelse &.{},
                 .recorded_at = event.recorded_at,
             };
             const parsed_date = date.parse(value.date) catch return error.InvalidDataFile;

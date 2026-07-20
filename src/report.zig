@@ -2,6 +2,7 @@ const std = @import("std");
 const date = @import("date.zig");
 const model = @import("model.zig");
 const store = @import("store.zig");
+const workout_detail = @import("workout.zig");
 
 const Io = std.Io;
 
@@ -121,8 +122,9 @@ pub fn printSchedule(
         const workout = store.currentWorkout(storage, current);
         if (workout) |planned| {
             if (previous_week == null or previous_week.? != planned.week) {
-                try writer.print("\nWeek {d} — schedule #{d}\n", .{
+                try writer.print("\nWeek {d} — {s} phase — schedule #{d}\n", .{
                     planned.week,
+                    planned.phase,
                     active_schedule.?.id,
                 });
                 previous_week = planned.week;
@@ -133,6 +135,7 @@ pub fn printSchedule(
                 try printDistanceRange(writer, planned.distance_min_km, planned.distance_max_km);
             }
             try writer.print("\n  Intensity: {s}\n  {s}\n", .{ planned.intensity, planned.details });
+            try workout_detail.printDetails(writer, planned, "  ");
         } else {
             try printDate(writer, current);
             try writer.writeAll(": no planned workout\n");
@@ -227,6 +230,12 @@ pub fn printMarkdown(
         try writer.print("- Baseline: {s}\n", .{active_schedule.baseline});
         try writer.print("- Availability: {s}\n", .{active_schedule.availability});
         try writer.print("- Intensity guidance: {s}\n", .{active_schedule.intensity_guidance});
+        if (active_schedule.pace_profile.len != 0) {
+            try writer.print("- Pace profile: {s}\n", .{active_schedule.pace_profile});
+        }
+        if (active_schedule.race_date.len != 0) {
+            try writer.print("- Race date: {s}\n", .{active_schedule.race_date});
+        }
         try writer.print("- Active schedule at period end: #{d} — {s}\n", .{
             active_schedule.id,
             active_schedule.name,
@@ -298,23 +307,53 @@ pub fn printMarkdown(
         try writer.writeAll(" |\n");
     }
 
-    try writer.writeAll("\n## Upcoming seven days\n\n");
-    try writer.writeAll("| Date | Planned workout | Schedule |\n");
-    try writer.writeAll("|---|---|---|\n");
+    try writer.writeAll("\n## Complete remaining program\n\n");
+    try writer.writeAll(
+        "This is the full plan after the reporting period, including rest days. " ++
+            "Use it together with the evidence above when proposing a replacement program.\n\n",
+    );
     var upcoming_date = date.addDays(end, 1);
-    const upcoming_end = date.addDays(end, 7);
+    const latest_schedule = storage.schedules.get(storage.max_schedule_id);
+    const upcoming_end = if (latest_schedule) |latest|
+        if (latest.race_date.len != 0) try date.parse(latest.race_date) else end
+    else
+        end;
+    var previous_week: ?u8 = null;
     while (date.compare(upcoming_date, upcoming_end) != .gt) : (upcoming_date = date.addDays(upcoming_date, 1)) {
-        const upcoming_text = try date.format(allocator, upcoming_date);
-        try writer.print("| {s} | ", .{upcoming_text});
-        if (store.currentWorkout(storage, upcoming_date)) |workout| {
-            try writeMarkdownCell(writer, workout.kind);
-            try writer.writeAll(": ");
-            try writeMarkdownCell(writer, workout.details);
-            try writer.print(" | #{d} |\n", .{workout.schedule_id});
+        if (store.currentWorkout(storage, upcoming_date)) |planned| {
+            if (previous_week == null or previous_week.? != planned.week) {
+                try writer.print("### Week {d} — {s}\n\n", .{ planned.week, planned.phase });
+                previous_week = planned.week;
+            }
+            try writer.print(
+                "#### {s} {s} — {s}\n\n{s}\n\n- Intensity: {s}\n",
+                .{ planned.date, planned.day, planned.kind, planned.details, planned.intensity },
+            );
+            try workout_detail.printDetails(writer, planned, "");
+            try writer.print("- Schedule #{d}; workout #{d}\n\n", .{
+                planned.schedule_id,
+                planned.id,
+            });
         } else {
-            try writer.writeAll("No planned workout | — |\n");
+            const upcoming_text = try date.format(allocator, upcoming_date);
+            try writer.print("#### {s} — no planned workout\n\n", .{upcoming_text});
         }
     }
+
+    try writer.writeAll(
+        "## Whole-program revision contract\n\n" ++
+            "If the evidence warrants a change, produce one JSON object for `runningman plan preview FILE`. " ++
+            "It must use `schema_version: 1`, target the latest schedule with `base_schedule_id`, " ++
+            "state `effective_from` and `reason`, and contain `workouts` for every consecutive date " ++
+            "from the effective date through race day. Each workout needs `date`, `phase`, `kind`, " ++
+            "`intensity`, `details`, and `segments`. Segment pace values are integer seconds per km. " ++
+            "A distance segment uses `kind`, `label`, `distance_km`, " ++
+            "`pace_fast_seconds_per_km`, and `pace_slow_seconds_per_km`; a timed segment uses " ++
+            "`duration_seconds`; repetitions may add `repetitions` and `recovery_seconds`; a rest " ++
+            "segment needs `kind: \"rest\"` and `label`. Optional workouts may set workout-level " ++
+            "`distance_min_km` and `distance_max_km`. Preview the file before applying it with " ++
+            "`runningman plan apply FILE`.\n",
+    );
 }
 
 pub fn printActivity(writer: *Io.Writer, activity: model.Activity) !void {

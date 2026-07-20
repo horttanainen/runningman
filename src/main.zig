@@ -3,9 +3,11 @@ const activity = @import("activity.zig");
 const check_in = @import("check_in.zig");
 const date = @import("date.zig");
 const model = @import("model.zig");
+const plan_revision = @import("plan_revision.zig");
 const report = @import("report.zig");
 const schedule = @import("schedule.zig");
 const store = @import("store.zig");
+const workout_detail = @import("workout.zig");
 
 const Io = std.Io;
 const default_data_path = "runningman-data.jsonl";
@@ -116,9 +118,11 @@ fn run(
         try commandHistory(allocator, writer, &storage, command_args);
     } else if (std.mem.eql(u8, command, "compare")) {
         try commandCompare(writer, &storage, command_args);
-    } else if (std.mem.eql(u8, command, "revise")) {
-        try commandRevise(allocator, io, writer, data_path, &storage, command_args);
+    } else if (std.mem.eql(u8, command, "plan")) {
+        try commandPlan(allocator, io, writer, data_path, &storage, command_args);
     } else if (std.mem.eql(u8, command, "export")) {
+        try commandExport(allocator, io, writer, data_path, &storage, command_args);
+    } else if (std.mem.eql(u8, command, "review")) {
         try commandExport(allocator, io, writer, data_path, &storage, command_args);
     } else {
         return error.UnknownCommand;
@@ -145,10 +149,10 @@ fn commandInit(
     try store.append(io, data_path, events);
     const start_text = try date.format(allocator, start);
     try writer.print(
-        "Created an immutable 12-week running schedule starting {s}.\nData: {s}\n",
+        "Created an immutable 13-week periodized running schedule starting {s}.\nData: {s}\n",
         .{ start_text, data_path },
     );
-    try writer.writeAll("Weeks 1–11 follow the supplied plan; race-week days remain explicitly unspecified.\n\n");
+    try writer.writeAll("The plan ends with the half marathon on Sunday of week 13.\n\n");
 
     var initialized: store.Store = .{};
     defer store.deinit(&initialized, allocator);
@@ -309,7 +313,7 @@ fn commandCompare(
     try report.printComparison(writer, storage, start, command.ending, previous_start, previous_end);
 }
 
-fn commandRevise(
+fn commandPlan(
     allocator: std.mem.Allocator,
     io: Io,
     writer: *Io.Writer,
@@ -317,23 +321,50 @@ fn commandRevise(
     storage: *const store.Store,
     args: []const []const u8,
 ) !void {
-    const input = try parseRevisionInput(args);
-    const parent = storage.schedules.get(storage.max_schedule_id) orelse return error.NoScheduleForDate;
-    const events = try schedule.createRevisionEvents(
-        allocator,
-        &storage.schedules,
-        &storage.workouts,
-        parent.id,
-        storage.max_schedule_id + 1,
-        storage.max_workout_id + 1,
-        input,
-        date.unixTimestamp(),
-    );
-    try store.append(io, data_path, events);
-    try writer.print(
-        "Created complete schedule snapshot #{d}, effective {s}, with {d} planned workouts.\n",
-        .{ storage.max_schedule_id + 1, events[0].effective_from.?, events.len - 1 },
-    );
+    if (args.len == 0) return error.MissingPlanAction;
+    const action = args[0];
+
+    if (std.mem.eql(u8, action, "periodize")) {
+        if (args.len != 1) return error.UnexpectedArgument;
+        const parent = storage.schedules.get(storage.max_schedule_id) orelse
+            return error.NoScheduleForDate;
+        if (std.mem.eql(u8, parent.name, schedule.initial_name)) {
+            return error.PlanAlreadyPeriodized;
+        }
+        const events = try schedule.createPeriodizedRevisionEvents(
+            allocator,
+            parent,
+            storage.max_schedule_id + 1,
+            storage.max_workout_id + 1,
+            date.unixTimestamp(),
+        );
+        try store.append(io, data_path, events);
+        try writer.print(
+            "Created periodized schedule #{d} with {d} daily entries through race day.\n",
+            .{ storage.max_schedule_id + 1, events.len - 1 },
+        );
+        return;
+    }
+
+    if (args.len != 2) return error.PlanFileRequired;
+    const revision = try plan_revision.load(allocator, io, args[1]);
+    if (std.mem.eql(u8, action, "preview")) {
+        try plan_revision.printPreview(writer, storage, revision);
+    } else if (std.mem.eql(u8, action, "apply")) {
+        const events = try plan_revision.createEvents(
+            allocator,
+            storage,
+            revision,
+            date.unixTimestamp(),
+        );
+        try store.append(io, data_path, events);
+        try writer.print(
+            "Applied schedule #{d}, effective {s}, as a complete {d}-day snapshot.\n",
+            .{ storage.max_schedule_id + 1, revision.effective_from, events.len - 1 },
+        );
+    } else {
+        return error.UnknownPlanAction;
+    }
 }
 
 fn commandExport(
@@ -376,18 +407,27 @@ fn exportJsonl(
 fn printDay(writer: *Io.Writer, storage: *const store.Store, target_date: date.Date) !void {
     const active_schedule = store.effectiveSchedule(storage, target_date) orelse
         return error.NoScheduleForDate;
-    const workout = store.workoutForDate(storage, active_schedule.id, target_date) orelse
+    const planned = store.workoutForDate(storage, active_schedule.id, target_date) orelse
         return error.NoWorkoutForDate;
 
     try writer.print(
-        "{s}, {s} — week {d}\n{s}\nIntensity: {s}",
-        .{ workout.day, workout.date, workout.week, workout.details, workout.intensity },
+        "{s}, {s} — week {d}, {s} phase\n{s}\nIntensity: {s}",
+        .{
+            planned.day,
+            planned.date,
+            planned.week,
+            planned.phase,
+            planned.details,
+            planned.intensity,
+        },
     );
-    if (workout.distance_min_km != null or workout.distance_max_km != null) {
+    if (planned.distance_min_km != null or planned.distance_max_km != null) {
         try writer.writeAll("\nPlanned distance: ");
-        try printDistanceRange(writer, workout.distance_min_km, workout.distance_max_km);
+        try printDistanceRange(writer, planned.distance_min_km, planned.distance_max_km);
     }
-    try writer.print("\nSchedule #{d}, workout #{d}\n", .{ active_schedule.id, workout.id });
+    try writer.writeByte('\n');
+    try workout_detail.printDetails(writer, planned, "");
+    try writer.print("Schedule #{d}, workout #{d}\n", .{ active_schedule.id, planned.id });
 
     if (store.latestActivityForDate(storage, target_date)) |logged| {
         try writer.writeAll("Recorded: ");
@@ -396,7 +436,7 @@ fn printDay(writer: *Io.Writer, storage: *const store.Store, target_date: date.D
         try writer.print(
             "\nRecord it interactively:\n  runningman log {s}\n\n" ++
                 "Or with flags:\n  runningman log {s} --distance KM --duration MM:SS --avg-hr BPM --rpe 1-10 --pain 0-10 --notes \"...\"\n",
-            .{ workout.date, workout.date },
+            .{ planned.date, planned.date },
         );
     }
 
@@ -410,7 +450,7 @@ fn printDay(writer: *Io.Writer, storage: *const store.Store, target_date: date.D
     } else {
         try writer.print(
             "\nRecord this morning's Oura scores:\n  runningman check-in {s}\n",
-            .{workout.date},
+            .{planned.date},
         );
     }
 }
@@ -620,51 +660,6 @@ fn parseExportCommand(args: []const []const u8) !ExportCommand {
     return result;
 }
 
-fn parseRevisionInput(args: []const []const u8) !schedule.RevisionInput {
-    if (args.len == 0) return error.MissingDate;
-    var result: schedule.RevisionInput = .{
-        .target_date = try date.parse(args[0]),
-        .kind = "",
-        .intensity = "User-defined",
-        .details = "",
-        .distance_min_km = null,
-        .distance_max_km = null,
-        .reason = "",
-    };
-    var index: usize = 1;
-    while (index < args.len) {
-        const flag = args[index];
-        index += 1;
-        if (index >= args.len) return error.MissingFlagValue;
-        const value = args[index];
-        index += 1;
-        if (std.mem.eql(u8, flag, "--kind")) {
-            result.kind = value;
-        } else if (std.mem.eql(u8, flag, "--intensity")) {
-            result.intensity = value;
-        } else if (std.mem.eql(u8, flag, "--details")) {
-            result.details = value;
-        } else if (std.mem.eql(u8, flag, "--min-km")) {
-            result.distance_min_km = try parseNonNegativeFloat(value);
-        } else if (std.mem.eql(u8, flag, "--max-km")) {
-            result.distance_max_km = try parseNonNegativeFloat(value);
-        } else if (std.mem.eql(u8, flag, "--reason")) {
-            result.reason = value;
-        } else {
-            return error.UnknownFlag;
-        }
-    }
-    if (result.kind.len == 0 or result.details.len == 0 or result.reason.len == 0) {
-        return error.RevisionFieldsRequired;
-    }
-    if (result.distance_min_km != null and result.distance_max_km != null and
-        result.distance_min_km.? > result.distance_max_km.?)
-    {
-        return error.InvalidDistanceRange;
-    }
-    return result;
-}
-
 fn validateRange(start: date.Date, end: date.Date) !void {
     if (date.compare(start, end) == .gt) return error.InvalidDateRange;
     if (date.daysBetween(start, end) > 366) return error.DateRangeTooLarge;
@@ -673,12 +668,6 @@ fn validateRange(start: date.Date, end: date.Date) !void {
 fn parseFloat(text: []const u8) !f64 {
     const value = try std.fmt.parseFloat(f64, text);
     if (value <= 0 or !std.math.isFinite(value)) return error.InvalidDistance;
-    return value;
-}
-
-fn parseNonNegativeFloat(text: []const u8) !f64 {
-    const value = try std.fmt.parseFloat(f64, text);
-    if (value < 0 or !std.math.isFinite(value)) return error.InvalidDistance;
     return value;
 }
 
@@ -709,7 +698,9 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman [--data PATH] log [DATE] --distance KM [options]
         \\  runningman [--data PATH] history [FROM_DATE] [TO_DATE]
         \\  runningman [--data PATH] compare [--weeks N] [--ending DATE]
-        \\  runningman [--data PATH] revise DATE --kind KIND --details TEXT --reason TEXT [options]
+        \\  runningman [--data PATH] plan preview REVISION.json
+        \\  runningman [--data PATH] plan apply REVISION.json
+        \\  runningman [--data PATH] review [--weeks N] [--ending DATE]
         \\  runningman [--data PATH] export [--format markdown|jsonl] [--weeks N] [--ending DATE]
         \\
         \\Log options:
@@ -718,9 +709,6 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  --distance KM  --duration MINUTES|MM:SS|HH:MM:SS  --avg-hr BPM
         \\  --rpe 1-10  --pain 0-10  --pain-location TEXT
         \\  --reason TEXT  --notes TEXT
-        \\
-        \\Revision options:
-        \\  --intensity TEXT  --min-km KM  --max-km KM
         \\
         \\Default data file: runningman-data.jsonl
         \\
@@ -731,7 +719,7 @@ fn friendlyError(err: anyerror) []const u8 {
     return switch (err) {
         error.NotInitialized => "no plan found; run `runningman init YYYY-MM-DD` with a Monday start date",
         error.AlreadyInitialized => "the data file already contains a plan",
-        error.StartMustBeMonday => "the 12-week plan must start on a Monday",
+        error.StartMustBeMonday => "the 13-week plan must start on a Monday",
         error.InvalidDate => "date must be a real calendar date in YYYY-MM-DD form",
         error.NoScheduleForDate => "no schedule applies to that date",
         error.NoWorkoutForDate, error.WorkoutNotFound => "the active schedule has no workout for that date",
@@ -747,8 +735,25 @@ fn friendlyError(err: anyerror) []const u8 {
         error.ModifiedReasonRequired => "a modified activity requires a reason",
         error.InvalidStatus => "outcome must be completed, modified, skipped, or rested",
         error.InvalidDuration => "duration must be positive whole minutes, MM:SS, or HH:MM:SS",
-        error.RevisionFieldsRequired => "a revision requires --kind, --details, and --reason",
-        error.IncompleteScheduleSnapshot => "could not create a complete 84-workout schedule snapshot",
+        error.MissingPlanAction => "plan requires `preview REVISION.json` or `apply REVISION.json`",
+        error.PlanFileRequired => "plan preview/apply requires exactly one revision JSON file",
+        error.UnknownPlanAction => "plan action must be preview or apply",
+        error.PlanAlreadyPeriodized => "the latest schedule is already periodized",
+        error.RevisionFileNotFound => "the revision JSON file was not found",
+        error.InvalidRevisionFile => "the revision file is not valid JSON in the expected format",
+        error.UnsupportedRevisionSchema => "the revision file schema_version must be 1",
+        error.StaleRevision => "the revision targets an older schedule; export a fresh review first",
+        error.RevisionReasonRequired => "the revision needs a non-empty reason",
+        error.EmptyRevision => "the revision contains no workouts",
+        error.RevisionBeforePlanStart => "the revision cannot begin before the plan",
+        error.RevisionDatesNotConsecutive => "the revision must contain one entry for every consecutive day",
+        error.RevisionRaceDateRequired => "the schedule needs a race date",
+        error.RevisionMustEndOnRaceDate => "the complete remaining program must end on race day",
+        error.IncompleteParentSchedule => "the parent schedule is missing a day before the revision",
+        error.IncompleteProposedWorkout => "each revised workout needs phase, kind, intensity, and details",
+        error.ProposedWorkoutNeedsSegments => "each revised workout needs at least one structured segment",
+        error.InvalidSegment => "a revised workout contains an invalid segment",
+        error.InvalidPaceRange => "a pace range needs fast and slow values with fast no slower than slow",
         error.InvalidDateRange => "the history start date is after its end date",
         error.DateRangeTooLarge => "history is limited to 366 days at a time",
         error.InvalidWeekCount => "--weeks must be from 1 to 52",

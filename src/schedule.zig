@@ -2,327 +2,532 @@ const std = @import("std");
 const date = @import("date.zig");
 const model = @import("model.zig");
 
-pub const initial_name = "Half marathon base — 12 weeks";
+pub const initial_name = "Periodized two-hour half marathon — 13 weeks";
 
-const long_run_distances = [_]?f64{
-    14, 15, 16, 13, 17, 18, 19, 16, 20, 21, 16, null,
-};
+const recovery_fast: u16 = 395;
+const recovery_slow: u16 = 440;
+const easy_fast: u16 = 375;
+const easy_slow: u16 = 420;
+const long_fast: u16 = 375;
+const long_slow: u16 = 415;
+const steady_fast: u16 = 350;
+const steady_slow: u16 = 370;
+const half_marathon_fast: u16 = 338;
+const half_marathon_slow: u16 = 348;
+const tempo_fast: u16 = 325;
+const tempo_slow: u16 = 340;
+const interval_fast: u16 = 300;
+const interval_slow: u16 = 315;
+
+const monday_distances = [_]f64{ 6, 7, 8, 6, 8, 8, 9, 7, 9, 9, 8, 6, 5 };
+const optional_distances = [_]f64{ 5, 5, 6, 4, 6, 6, 6, 5, 6, 6, 5, 4, 4 };
+const long_distances = [_]?f64{ 14, 15, 16, 13, 17, 18, 19, 15, 18, 20, 16, 12, null };
 
 pub fn createInitialEvents(
     allocator: std.mem.Allocator,
     start: date.Date,
     recorded_at: i64,
 ) ![]model.Event {
+    return createPeriodizedEvents(
+        allocator,
+        null,
+        1,
+        1,
+        start,
+        "Initial 13-week periodized plan targeting approximately two hours.",
+        recorded_at,
+    );
+}
+
+pub fn createPeriodizedRevisionEvents(
+    allocator: std.mem.Allocator,
+    parent: model.Schedule,
+    schedule_id: u64,
+    first_workout_id: u64,
+    recorded_at: i64,
+) ![]model.Event {
+    const start = try date.parse(parent.start_date);
+    return createPeriodizedEvents(
+        allocator,
+        parent.id,
+        schedule_id,
+        first_workout_id,
+        start,
+        "Replaced the repeating plan with an approved 13-week periodized program.",
+        recorded_at,
+    );
+}
+
+fn createPeriodizedEvents(
+    allocator: std.mem.Allocator,
+    parent_schedule_id: ?u64,
+    schedule_id: u64,
+    first_workout_id: u64,
+    start: date.Date,
+    reason: []const u8,
+    recorded_at: i64,
+) ![]model.Event {
     var events: std.ArrayList(model.Event) = .empty;
     errdefer events.deinit(allocator);
 
     const start_text = try date.format(allocator, start);
+    const race_text = try date.format(allocator, date.addDays(start, 90));
     const schedule_value: model.Schedule = .{
-        .id = 1,
-        .parent_schedule_id = null,
+        .id = schedule_id,
+        .parent_schedule_id = parent_schedule_id,
         .effective_from = start_text,
         .start_date = start_text,
         .name = initial_name,
-        .reason = "Initial plan from ChatGPT: five running days, optional recovery, one rest day. Week 12 remains explicitly unspecified because the source contains no daily taper or race date.",
-        .goal = "Finish a half marathon comfortably and build toward approximately 1:50–1:58 without making every run hard.",
-        .baseline = "Age 34; comfortable 10–15 km runs; recent 10K 53:00 at very hard effort.",
-        .availability = "Up to seven days per week; plan uses five running days, one optional recovery day, and one complete rest day.",
-        .intensity_guidance = "Keep about 80% of running in Zone 2 at conversational effort. Easy pace may be around 6:15–7:00 min/km, but effort takes priority over pace.",
-        .source = "Running plan supplied by the user on 2026-07-20. Weeks 1–11 are represented directly; the source only says “race week” for week 12.",
+        .reason = reason,
+        .goal = "Run the half marathon in approximately 2:00 (about 5:41 min/km), adjusting the remaining plan from weekly evidence.",
+        .baseline = "Comfortable 10–15 km runs; recent 10K 53:00 at very hard effort.",
+        .availability = "Four core runs each week plus one optional recovery run; two full rest days.",
+        .intensity_guidance = "Most running stays easy. Foundation uses one hard session; build and race-specific phases add controlled half-marathon or threshold work, separated by easy or rest days.",
+        .pace_profile = "Recovery 6:35–7:20/km; easy 6:15–7:00/km; long 6:15–6:55/km; steady 5:50–6:10/km; half-marathon effort 5:38–5:48/km; tempo 5:25–5:40/km; short intervals 5:00–5:15/km.",
+        .race_date = race_text,
+        .source = "Periodized 13-week half-marathon plan approved by the user.",
         .recorded_at = recorded_at,
     };
     try events.append(allocator, model.scheduleEvent(schedule_value));
 
-    var workout_id: u64 = 0;
-    for (0..12) |week_index| {
+    var workout_id = first_workout_id;
+    for (0..13) |week_index| {
         for (0..7) |day_index| {
-            workout_id += 1;
             const workout_date = date.addDays(start, @intCast(week_index * 7 + day_index));
-            const workout = try makeInitialWorkout(
+            const workout = try makeWorkout(
                 allocator,
                 workout_id,
+                schedule_id,
                 workout_date,
                 @intCast(week_index + 1),
                 @intCast(day_index),
                 recorded_at,
             );
             try events.append(allocator, model.workoutEvent(workout));
+            workout_id += 1;
         }
     }
-
     return events.toOwnedSlice(allocator);
 }
 
-pub fn makeRevision(
-    schedule_id: u64,
-    parent_schedule_id: u64,
-    effective_from: []const u8,
-    start_date: []const u8,
-    reason: []const u8,
-    parent: model.Schedule,
-    recorded_at: i64,
-) model.Schedule {
-    return .{
-        .id = schedule_id,
-        .parent_schedule_id = parent_schedule_id,
-        .effective_from = effective_from,
-        .start_date = start_date,
-        .name = "Revised running schedule",
-        .reason = reason,
-        .goal = parent.goal,
-        .baseline = parent.baseline,
-        .availability = parent.availability,
-        .intensity_guidance = parent.intensity_guidance,
-        .source = parent.source,
-        .recorded_at = recorded_at,
-    };
-}
-
-pub const RevisionInput = struct {
-    target_date: date.Date,
-    kind: []const u8,
-    intensity: []const u8,
-    details: []const u8,
-    distance_min_km: ?f64,
-    distance_max_km: ?f64,
-    reason: []const u8,
-};
-
-pub fn createRevisionEvents(
-    allocator: std.mem.Allocator,
-    schedules: *const std.AutoArrayHashMapUnmanaged(u64, model.Schedule),
-    workouts: *const std.AutoArrayHashMapUnmanaged(u64, model.Workout),
-    parent_schedule_id: u64,
-    new_schedule_id: u64,
-    first_workout_id: u64,
-    input: RevisionInput,
-    recorded_at: i64,
-) ![]model.Event {
-    const parent = schedules.get(parent_schedule_id) orelse return error.ScheduleNotFound;
-    const target_text = try date.format(allocator, input.target_date);
-    const revision = makeRevision(
-        new_schedule_id,
-        parent_schedule_id,
-        target_text,
-        parent.start_date,
-        input.reason,
-        parent,
-        recorded_at,
-    );
-
-    var events: std.ArrayList(model.Event) = .empty;
-    errdefer events.deinit(allocator);
-    try events.append(allocator, model.scheduleEvent(revision));
-
-    var next_workout_id = first_workout_id;
-    var target_found = false;
-    for (workouts.values()) |existing| {
-        if (existing.schedule_id != parent_schedule_id) continue;
-
-        var copied = existing;
-        copied.id = next_workout_id;
-        copied.schedule_id = new_schedule_id;
-        copied.recorded_at = recorded_at;
-        next_workout_id += 1;
-
-        const existing_date = date.parse(existing.date) catch return error.InvalidWorkoutDate;
-        if (date.compare(existing_date, input.target_date) == .eq) {
-            copied.kind = input.kind;
-            copied.intensity = input.intensity;
-            copied.distance_min_km = input.distance_min_km;
-            copied.distance_max_km = input.distance_max_km;
-            copied.details = input.details;
-            target_found = true;
-        }
-        try events.append(allocator, model.workoutEvent(copied));
-    }
-
-    if (!target_found) return error.WorkoutNotFound;
-    if (events.items.len != 85) return error.IncompleteScheduleSnapshot;
-    return events.toOwnedSlice(allocator);
-}
-
-fn makeInitialWorkout(
+fn makeWorkout(
     allocator: std.mem.Allocator,
     id: u64,
+    schedule_id: u64,
     workout_date: date.Date,
     week: u8,
     day_index: u8,
     recorded_at: i64,
 ) !model.Workout {
-    const date_text = try date.format(allocator, workout_date);
     const common: model.Workout = .{
         .id = id,
-        .schedule_id = 1,
-        .date = date_text,
+        .schedule_id = schedule_id,
+        .date = try date.format(allocator, workout_date),
         .week = week,
         .day = date.weekdayName(workout_date),
+        .phase = phaseForWeek(week),
         .kind = undefined,
         .intensity = undefined,
         .distance_min_km = null,
         .distance_max_km = null,
         .details = undefined,
+        .segments = &.{},
         .recorded_at = recorded_at,
     };
 
-    if (week == 12) return raceWeekWorkout(common);
-
+    if (week == 13) return raceWeekWorkout(allocator, common, day_index);
     return switch (day_index) {
-        0 => withPlan(common, "easy", "Zone 2, conversational", 6, 8, "Easy 6–8 km in Zone 2; conversational effort."),
-        1 => if (@mod(week, 2) == 1)
-            withPlan(common, "intervals", "Hard repetitions, easy recoveries", null, null, "Warm up; 6 × 800 m with 2 min easy jog recoveries; cool down.")
-        else
-            withPlan(common, "hills", "Hard uphill repetitions, easy recoveries", null, null, "Warm up; 8 × 1 min uphill, jogging back down; cool down."),
-        2 => withPlan(common, "easy", "Zone 2, conversational", 8, 10, "Easy 8–10 km in Zone 2; conversational effort."),
-        3 => withPlan(common, "tempo", "Comfortably hard", 9, 12, "Warm up 2 km; 5–8 km comfortably hard around current half-marathon pace; cool down 2 km."),
-        4 => withPlan(common, "recovery-or-rest", "Very easy or complete rest", 0, 5, "Complete rest or an optional 5 km very easy recovery jog."),
-        5 => withPlan(
+        0 => distanceWorkout(
+            allocator,
             common,
-            "long",
-            "Easy, conversational",
-            long_run_distances[week - 1],
-            long_run_distances[week - 1],
-            "Long run at easy effort; do not target speed.",
+            "easy",
+            "Zone 2, conversational",
+            monday_distances[week - 1],
+            easy_fast,
+            easy_slow,
+            "Core easy aerobic run.",
         ),
-        6 => withPlan(common, "easy-or-rest", "Zone 2 or complete rest", 0, 8, "Easy 5–8 km in Zone 2 or complete rest."),
+        1 => qualityWorkout(allocator, common, week),
+        2 => optionalRecoveryWorkout(allocator, common, optional_distances[week - 1]),
+        3 => thursdayWorkout(allocator, common, week),
+        4 => restWorkout(allocator, common, "Full rest before the long run."),
+        5 => longWorkout(allocator, common, week),
+        6 => restWorkout(allocator, common, "Full rest. Do not move missed hard training here."),
         else => unreachable,
     };
 }
 
-fn raceWeekWorkout(common: model.Workout) model.Workout {
-    return withPlan(
+fn qualityWorkout(
+    allocator: std.mem.Allocator,
+    common: model.Workout,
+    week: u8,
+) !model.Workout {
+    return switch (week) {
+        1 => timedRepeatWorkout(allocator, common, "hills", 6, 45, 75, "6 × 45 sec uphill at controlled hard effort; jog easily downhill."),
+        2 => distanceRepeatWorkout(allocator, common, 6, 0.4, interval_fast, interval_slow, 90, "6 × 400 m controlled intervals."),
+        3 => timedRepeatWorkout(allocator, common, "hills", 8, 45, 75, "8 × 45 sec uphill at controlled hard effort; jog easily downhill."),
+        4 => timedRepeatWorkout(allocator, common, "strides", 6, 20, 60, "Recovery week: 6 × 20 sec relaxed strides, never sprinting."),
+        5 => distanceRepeatWorkout(allocator, common, 5, 0.8, interval_fast, interval_slow, 120, "5 × 800 m controlled intervals."),
+        6 => distanceRepeatWorkout(allocator, common, 6, 0.8, interval_fast, interval_slow, 120, "6 × 800 m controlled intervals."),
+        7 => distanceRepeatWorkout(allocator, common, 5, 1.0, 315, 325, 120, "5 × 1 km around current 10K effort."),
+        8 => timedRepeatWorkout(allocator, common, "hills", 6, 30, 75, "Recovery week: 6 × 30 sec relaxed hill repetitions."),
+        9 => distanceRepeatWorkout(allocator, common, 4, 1.2, tempo_fast, 335, 150, "4 × 1.2 km controlled threshold repetitions."),
+        10 => distanceRepeatWorkout(allocator, common, 3, 1.6, tempo_fast, 335, 180, "3 × 1.6 km controlled threshold repetitions."),
+        11 => distanceRepeatWorkout(allocator, common, 5, 1.0, tempo_fast, 335, 120, "5 × 1 km controlled threshold repetitions."),
+        12 => distanceRepeatWorkout(allocator, common, 4, 0.4, interval_fast, interval_slow, 120, "Taper: 4 × 400 m relaxed and quick with full recovery."),
+        else => unreachable,
+    };
+}
+
+fn thursdayWorkout(
+    allocator: std.mem.Allocator,
+    common: model.Workout,
+    week: u8,
+) !model.Workout {
+    return switch (week) {
+        1 => threePartWorkout(allocator, common, "steady", 3, steady_fast, steady_slow, "3 km steady between easy warm-up and cooldown."),
+        2 => threePartWorkout(allocator, common, "tempo", 3, tempo_fast, tempo_slow, "3 km tempo between easy warm-up and cooldown."),
+        3 => threePartWorkout(allocator, common, "tempo", 4, tempo_fast, tempo_slow, "4 km tempo between easy warm-up and cooldown."),
+        4 => distanceWorkout(allocator, common, "easy", "Zone 2, conversational", 6, easy_fast, easy_slow, "Recovery-week easy run."),
+        5 => threePartWorkout(allocator, common, "half-marathon-pace", 4, half_marathon_fast, half_marathon_slow, "4 km at half-marathon effort between easy warm-up and cooldown."),
+        6 => threePartWorkout(allocator, common, "half-marathon-pace", 5, half_marathon_fast, half_marathon_slow, "5 km at half-marathon effort between easy warm-up and cooldown."),
+        7 => threePartWorkout(allocator, common, "tempo", 5, tempo_fast, tempo_slow, "5 km tempo between easy warm-up and cooldown."),
+        8 => threePartWorkout(allocator, common, "steady", 4, steady_fast, steady_slow, "Recovery week: 4 km steady between easy warm-up and cooldown."),
+        9 => threePartWorkout(allocator, common, "half-marathon-pace", 6, half_marathon_fast, half_marathon_slow, "6 km at half-marathon effort between easy warm-up and cooldown."),
+        10 => threePartWorkout(allocator, common, "half-marathon-pace", 8, half_marathon_fast, half_marathon_slow, "8 km at half-marathon effort between easy warm-up and cooldown."),
+        11 => distanceRepeatWorkoutWithPace(
+            allocator,
+            common,
+            "half-marathon-pace",
+            3,
+            2,
+            half_marathon_fast,
+            half_marathon_slow,
+            120,
+            "3 × 2 km at half-marathon effort with 2 min easy recovery.",
+        ),
+        12 => threePartWorkout(allocator, common, "half-marathon-pace", 3, half_marathon_fast, half_marathon_slow, "Taper: 3 km at half-marathon effort between short easy running."),
+        else => unreachable,
+    };
+}
+
+fn longWorkout(
+    allocator: std.mem.Allocator,
+    common: model.Workout,
+    week: u8,
+) !model.Workout {
+    if (week == 9) {
+        return segmentedDistanceWorkout(
+            allocator,
+            common,
+            "long-progression",
+            "Easy with controlled steady finish",
+            18,
+            "15 km easy, then 3 km steady. Do not race the finish.",
+            &.{
+                distanceSegment("Easy running", 15, long_fast, long_slow),
+                distanceSegment("Steady finish", 3, steady_fast, steady_slow),
+            },
+        );
+    }
+    if (week == 11) {
+        return segmentedDistanceWorkout(
+            allocator,
+            common,
+            "long-race-specific",
+            "Easy followed by half-marathon effort",
+            16,
+            "10 km easy, then 6 km at controlled half-marathon effort.",
+            &.{
+                distanceSegment("Easy running", 10, long_fast, long_slow),
+                distanceSegment("Half-marathon effort", 6, half_marathon_fast, half_marathon_slow),
+            },
+        );
+    }
+    return distanceWorkout(
+        allocator,
         common,
-        "race-week-unspecified",
-        "Not specified",
-        null,
-        null,
-        "Race week. The supplied plan does not specify this day’s workout or the race date; create a revision once those are known.",
+        "long",
+        "Easy, conversational",
+        long_distances[week - 1].?,
+        long_fast,
+        long_slow,
+        if (week == 4 or week == 8)
+            "Recovery-week long run at easy effort."
+        else if (week == 10)
+            "Peak-distance long run at easy effort; do not target speed."
+        else if (week == 12)
+            "Taper long run at relaxed easy effort."
+        else
+            "Long run at easy conversational effort.",
     );
 }
 
-fn withPlan(
+fn raceWeekWorkout(
+    allocator: std.mem.Allocator,
+    common: model.Workout,
+    day_index: u8,
+) !model.Workout {
+    return switch (day_index) {
+        0 => distanceWorkout(allocator, common, "easy", "Zone 2, conversational", 5, easy_fast, easy_slow, "Short race-week easy run."),
+        1 => timedRepeatWorkout(allocator, common, "strides", 4, 20, 60, "Race week: 4 × 20 sec relaxed strides after easy running."),
+        2 => optionalRecoveryWorkout(allocator, common, 4),
+        3 => distanceWorkout(allocator, common, "easy", "Very easy", 4, recovery_fast, recovery_slow, "Short relaxed race-week run."),
+        4 => restWorkout(allocator, common, "Full rest."),
+        5 => distanceWorkout(allocator, common, "shakeout", "Very easy", 2, recovery_fast, recovery_slow, "Optional 2 km shakeout; rest instead if preferred."),
+        6 => distanceWorkout(allocator, common, "race", "Target approximately 5:41/km", 21.0975, half_marathon_fast, half_marathon_slow, "Half marathon race. Start controlled and use the two-hour pace as a target, not a demand."),
+        else => unreachable,
+    };
+}
+
+fn distanceWorkout(
+    allocator: std.mem.Allocator,
     common: model.Workout,
     kind: []const u8,
     intensity: []const u8,
-    distance_min_km: ?f64,
-    distance_max_km: ?f64,
+    distance_km: f64,
+    pace_fast: u16,
+    pace_slow: u16,
     details: []const u8,
-) model.Workout {
-    var result = common;
-    result.kind = kind;
-    result.intensity = intensity;
-    result.distance_min_km = distance_min_km;
-    result.distance_max_km = distance_max_km;
-    result.details = details;
+) !model.Workout {
+    return segmentedDistanceWorkout(
+        allocator,
+        common,
+        kind,
+        intensity,
+        distance_km,
+        details,
+        &.{distanceSegment("Run", distance_km, pace_fast, pace_slow)},
+    );
+}
+
+fn optionalRecoveryWorkout(
+    allocator: std.mem.Allocator,
+    common: model.Workout,
+    distance_km: f64,
+) !model.Workout {
+    var result = try distanceWorkout(
+        allocator,
+        common,
+        "recovery-or-rest",
+        "Recovery pace or complete rest",
+        distance_km,
+        recovery_fast,
+        recovery_slow,
+        "Optional recovery run. Rest is equally valid.",
+    );
+    result.distance_min_km = 0;
     return result;
 }
 
-test "initial schedule contains one revision and 84 workouts" {
-    const allocator = std.testing.allocator;
-    const events = try createInitialEvents(allocator, try date.parse("2026-07-20"), 1);
-    defer {
-        for (events) |event| {
-            if (event.date) |value| allocator.free(value);
-        }
-        allocator.free(events[0].start_date.?);
-        allocator.free(events);
-    }
-
-    try std.testing.expectEqual(@as(usize, 85), events.len);
-    try std.testing.expectEqual(model.EventType.schedule, events[0].type);
-    try std.testing.expectEqualStrings("long", events[6].kind.?);
-    try std.testing.expectEqual(@as(?f64, 14), events[6].distance_min_km);
-
-    for (long_run_distances, 0..) |expected_distance, week_index| {
-        const saturday_event = events[1 + week_index * 7 + 5];
-        try std.testing.expectEqual(expected_distance, saturday_event.distance_min_km);
-    }
-    for (0..7) |day_index| {
-        const race_week_event = events[1 + 11 * 7 + day_index];
-        try std.testing.expectEqualStrings("race-week-unspecified", race_week_event.kind.?);
-        try std.testing.expectEqual(@as(?f64, null), race_week_event.distance_min_km);
-    }
+fn restWorkout(
+    allocator: std.mem.Allocator,
+    common: model.Workout,
+    details: []const u8,
+) !model.Workout {
+    var result = common;
+    result.kind = "rest";
+    result.intensity = "Rest";
+    result.distance_min_km = 0;
+    result.distance_max_km = 0;
+    result.details = details;
+    result.segments = try allocator.dupe(model.Segment, &.{.{
+        .kind = "rest",
+        .label = "Rest",
+        .notes = details,
+    }});
+    return result;
 }
 
-test "revision creates a complete independent schedule snapshot" {
-    const allocator = std.testing.allocator;
-    const initial = try createInitialEvents(allocator, try date.parse("2026-07-20"), 1);
-    defer {
-        for (initial) |event| {
-            if (event.date) |value| allocator.free(value);
-        }
-        allocator.free(initial[0].start_date.?);
-        allocator.free(initial);
-    }
-
-    var schedules: std.AutoArrayHashMapUnmanaged(u64, model.Schedule) = .empty;
-    defer schedules.deinit(allocator);
-    var workouts: std.AutoArrayHashMapUnmanaged(u64, model.Workout) = .empty;
-    defer workouts.deinit(allocator);
-
-    const initial_schedule_event = initial[0];
-    try schedules.put(allocator, 1, .{
-        .id = 1,
-        .parent_schedule_id = null,
-        .effective_from = initial_schedule_event.effective_from.?,
-        .start_date = initial_schedule_event.start_date.?,
-        .name = initial_schedule_event.name.?,
-        .reason = initial_schedule_event.reason.?,
-        .goal = initial_schedule_event.goal.?,
-        .baseline = initial_schedule_event.baseline.?,
-        .availability = initial_schedule_event.availability.?,
-        .intensity_guidance = initial_schedule_event.intensity_guidance.?,
-        .source = initial_schedule_event.source.?,
-        .recorded_at = 1,
-    });
-    for (initial[1..]) |event| {
-        try workouts.put(allocator, event.id, .{
-            .id = event.id,
-            .schedule_id = 1,
-            .date = event.date.?,
-            .week = event.week.?,
-            .day = event.day.?,
-            .kind = event.kind.?,
-            .intensity = event.intensity.?,
-            .distance_min_km = event.distance_min_km,
-            .distance_max_km = event.distance_max_km,
-            .details = event.details.?,
-            .recorded_at = 1,
-        });
-    }
-
-    const revised = try createRevisionEvents(
+fn threePartWorkout(
+    allocator: std.mem.Allocator,
+    common: model.Workout,
+    kind: []const u8,
+    work_distance_km: f64,
+    work_pace_fast: u16,
+    work_pace_slow: u16,
+    details: []const u8,
+) !model.Workout {
+    const total_distance = 4 + work_distance_km;
+    return segmentedDistanceWorkout(
         allocator,
-        &schedules,
-        &workouts,
-        1,
-        2,
-        85,
-        .{
-            .target_date = try date.parse("2026-08-01"),
-            .kind = "long",
-            .intensity = "Easy",
-            .details = "Reduced to 12 km.",
-            .distance_min_km = 12,
-            .distance_max_km = 12,
-            .reason = "Fatigue",
+        common,
+        kind,
+        "Controlled quality",
+        total_distance,
+        details,
+        &.{
+            distanceSegment("Warm-up", 2, easy_fast, easy_slow),
+            distanceSegment("Work segment", work_distance_km, work_pace_fast, work_pace_slow),
+            distanceSegment("Cooldown", 2, easy_fast, easy_slow),
         },
-        2,
     );
-    defer {
-        allocator.free(revised[0].effective_from.?);
-        allocator.free(revised);
-    }
+}
 
-    try std.testing.expectEqual(@as(usize, 85), revised.len);
-    try std.testing.expectEqual(@as(?u64, 1), revised[0].parent_schedule_id);
-    var changed_count: usize = 0;
-    for (revised[1..]) |event| {
-        try std.testing.expectEqual(@as(?u64, 2), event.schedule_id);
-        if (std.mem.eql(u8, event.date.?, "2026-08-01")) {
-            changed_count += 1;
-            try std.testing.expectEqual(@as(?f64, 12), event.distance_min_km);
+fn timedRepeatWorkout(
+    allocator: std.mem.Allocator,
+    common: model.Workout,
+    kind: []const u8,
+    repetitions: u8,
+    work_seconds: u32,
+    recovery_seconds: u16,
+    details: []const u8,
+) !model.Workout {
+    var result = common;
+    result.kind = kind;
+    result.intensity = "Controlled hard repetitions";
+    result.distance_min_km = null;
+    result.distance_max_km = null;
+    result.details = details;
+    result.segments = try allocator.dupe(model.Segment, &.{
+        distanceSegment("Warm-up", 2, easy_fast, easy_slow),
+        .{
+            .kind = "repeat",
+            .label = "Repetitions",
+            .repetitions = repetitions,
+            .duration_seconds = work_seconds,
+            .recovery_seconds = recovery_seconds,
+            .notes = "Run by effort; pace is not prescribed for hills or strides.",
+        },
+        distanceSegment("Cooldown", 2, easy_fast, easy_slow),
+    });
+    return result;
+}
+
+fn distanceRepeatWorkout(
+    allocator: std.mem.Allocator,
+    common: model.Workout,
+    repetitions: u8,
+    repeat_distance_km: f64,
+    pace_fast: u16,
+    pace_slow: u16,
+    recovery_seconds: u16,
+    details: []const u8,
+) !model.Workout {
+    return distanceRepeatWorkoutWithPace(
+        allocator,
+        common,
+        "intervals",
+        repetitions,
+        repeat_distance_km,
+        pace_fast,
+        pace_slow,
+        recovery_seconds,
+        details,
+    );
+}
+
+fn distanceRepeatWorkoutWithPace(
+    allocator: std.mem.Allocator,
+    common: model.Workout,
+    kind: []const u8,
+    repetitions: u8,
+    repeat_distance_km: f64,
+    pace_fast: u16,
+    pace_slow: u16,
+    recovery_seconds: u16,
+    details: []const u8,
+) !model.Workout {
+    var result = common;
+    result.kind = kind;
+    result.intensity = "Controlled quality";
+    const known_distance = 4 + @as(f64, @floatFromInt(repetitions)) * repeat_distance_km;
+    result.distance_min_km = known_distance;
+    result.distance_max_km = known_distance;
+    result.details = details;
+    result.segments = try allocator.dupe(model.Segment, &.{
+        distanceSegment("Warm-up", 2, easy_fast, easy_slow),
+        .{
+            .kind = "repeat",
+            .label = "Work repetitions",
+            .repetitions = repetitions,
+            .distance_km = repeat_distance_km,
+            .pace_fast_seconds_per_km = pace_fast,
+            .pace_slow_seconds_per_km = pace_slow,
+            .recovery_seconds = recovery_seconds,
+            .notes = "Recovery is easy walking or jogging.",
+        },
+        distanceSegment("Cooldown", 2, easy_fast, easy_slow),
+    });
+    return result;
+}
+
+fn segmentedDistanceWorkout(
+    allocator: std.mem.Allocator,
+    common: model.Workout,
+    kind: []const u8,
+    intensity: []const u8,
+    distance_km: f64,
+    details: []const u8,
+    segment_values: []const model.Segment,
+) !model.Workout {
+    var result = common;
+    result.kind = kind;
+    result.intensity = intensity;
+    result.distance_min_km = distance_km;
+    result.distance_max_km = distance_km;
+    result.details = details;
+    result.segments = try allocator.dupe(model.Segment, segment_values);
+    return result;
+}
+
+fn distanceSegment(
+    label: []const u8,
+    distance_km: f64,
+    pace_fast: u16,
+    pace_slow: u16,
+) model.Segment {
+    return .{
+        .kind = "distance",
+        .label = label,
+        .distance_km = distance_km,
+        .pace_fast_seconds_per_km = pace_fast,
+        .pace_slow_seconds_per_km = pace_slow,
+    };
+}
+
+fn phaseForWeek(week: u8) []const u8 {
+    return switch (week) {
+        1...3 => "foundation",
+        4 => "recovery",
+        5...7 => "build",
+        8 => "recovery",
+        9...11 => "race-specific",
+        12 => "taper",
+        13 => "race",
+        else => unreachable,
+    };
+}
+
+test "periodized plan contains 13 complete weeks" {
+    const allocator = std.testing.allocator;
+    const events = try createInitialEvents(allocator, try date.parse("2026-07-20"), 1);
+    defer freeEventsForTest(allocator, events);
+
+    try std.testing.expectEqual(@as(usize, 92), events.len);
+    try std.testing.expectEqualStrings("foundation", events[1].phase.?);
+    try std.testing.expectEqualStrings("recovery", events[1 + 3 * 7].phase.?);
+    try std.testing.expectEqualStrings("race-specific", events[1 + 8 * 7].phase.?);
+    try std.testing.expectEqualStrings("taper", events[1 + 11 * 7].phase.?);
+    try std.testing.expectEqualStrings("race", events[1 + 12 * 7].phase.?);
+
+    for (long_distances, 0..) |expected, week_index| {
+        if (expected) |distance_km| {
+            const saturday = events[1 + week_index * 7 + 5];
+            try std.testing.expectEqual(@as(?f64, distance_km), saturday.distance_max_km);
         }
     }
-    try std.testing.expectEqual(@as(usize, 1), changed_count);
+    const race = events[1 + 12 * 7 + 6];
+    try std.testing.expectEqualStrings("race", race.kind.?);
+    try std.testing.expectApproxEqAbs(@as(f64, 21.0975), race.distance_max_km.?, 0.0001);
+}
+
+fn freeEventsForTest(allocator: std.mem.Allocator, events: []model.Event) void {
+    for (events) |event| {
+        if (event.date) |value| allocator.free(value);
+        if (event.segments) |value| allocator.free(value);
+    }
+    allocator.free(events[0].start_date.?);
+    allocator.free(events[0].race_date.?);
+    allocator.free(events);
 }

@@ -23,8 +23,22 @@ pub const Schedule = struct {
     baseline: []const u8,
     availability: []const u8,
     intensity_guidance: []const u8,
+    pace_profile: []const u8,
+    race_date: []const u8,
     source: []const u8,
     recorded_at: i64,
+};
+
+pub const Segment = struct {
+    kind: []const u8,
+    label: []const u8,
+    repetitions: u8 = 1,
+    distance_km: ?f64 = null,
+    duration_seconds: ?u32 = null,
+    pace_fast_seconds_per_km: ?u16 = null,
+    pace_slow_seconds_per_km: ?u16 = null,
+    recovery_seconds: ?u16 = null,
+    notes: []const u8 = "",
 };
 
 pub const Workout = struct {
@@ -33,11 +47,13 @@ pub const Workout = struct {
     date: []const u8,
     week: u8,
     day: []const u8,
+    phase: []const u8,
     kind: []const u8,
     intensity: []const u8,
     distance_min_km: ?f64,
     distance_max_km: ?f64,
     details: []const u8,
+    segments: []const Segment,
     recorded_at: i64,
 };
 
@@ -84,6 +100,8 @@ pub const Event = struct {
     baseline: ?[]const u8 = null,
     availability: ?[]const u8 = null,
     intensity_guidance: ?[]const u8 = null,
+    pace_profile: ?[]const u8 = null,
+    race_date: ?[]const u8 = null,
     source: ?[]const u8 = null,
 
     schedule_id: ?u64 = null,
@@ -91,11 +109,13 @@ pub const Event = struct {
     date: ?[]const u8 = null,
     week: ?u8 = null,
     day: ?[]const u8 = null,
+    phase: ?[]const u8 = null,
     kind: ?[]const u8 = null,
     intensity: ?[]const u8 = null,
     distance_min_km: ?f64 = null,
     distance_max_km: ?f64 = null,
     details: ?[]const u8 = null,
+    segments: ?[]const Segment = null,
 
     status: ?ActivityStatus = null,
     supersedes_activity_id: ?u64 = null,
@@ -128,6 +148,8 @@ pub fn scheduleEvent(value: Schedule) Event {
         .baseline = value.baseline,
         .availability = value.availability,
         .intensity_guidance = value.intensity_guidance,
+        .pace_profile = value.pace_profile,
+        .race_date = value.race_date,
         .source = value.source,
         .recorded_at = value.recorded_at,
     };
@@ -141,11 +163,13 @@ pub fn workoutEvent(value: Workout) Event {
         .date = value.date,
         .week = value.week,
         .day = value.day,
+        .phase = value.phase,
         .kind = value.kind,
         .intensity = value.intensity,
         .distance_min_km = value.distance_min_km,
         .distance_max_km = value.distance_max_km,
         .details = value.details,
+        .segments = value.segments,
         .recorded_at = value.recorded_at,
     };
 }
