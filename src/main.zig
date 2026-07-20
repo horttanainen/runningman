@@ -2,9 +2,11 @@ const std = @import("std");
 const activity = @import("activity.zig");
 const check_in = @import("check_in.zig");
 const date = @import("date.zig");
+const evidence_ledger = @import("evidence_ledger.zig");
 const model = @import("model.zig");
 const plan_revision = @import("plan_revision.zig");
 const report = @import("report.zig");
+const runner_profile = @import("runner_profile.zig");
 const schedule = @import("schedule.zig");
 const store = @import("store.zig");
 const workout_detail = @import("workout.zig");
@@ -101,6 +103,14 @@ fn run(
         try commandInit(allocator, io, writer, data_path, command_args);
         return;
     }
+    if (std.mem.eql(u8, command, "profile")) {
+        try commandProfile(allocator, io, writer, command_args);
+        return;
+    }
+    if (std.mem.eql(u8, command, "evidence")) {
+        try commandEvidence(allocator, io, writer, command_args);
+        return;
+    }
     var storage: store.Store = .{};
     defer store.deinit(&storage, allocator);
     try store.load(&storage, allocator, io, data_path);
@@ -127,6 +137,34 @@ fn run(
     } else {
         return error.UnknownCommand;
     }
+}
+
+fn commandProfile(
+    allocator: std.mem.Allocator,
+    io: Io,
+    writer: *Io.Writer,
+    args: []const []const u8,
+) !void {
+    if (args.len != 2 or !std.mem.eql(u8, args[0], "validate")) {
+        return error.InvalidProfileCommand;
+    }
+    const profile = try runner_profile.load(allocator, io, args[1]);
+    const summary = try runner_profile.validate(profile);
+    try runner_profile.printSummary(writer, profile, summary);
+}
+
+fn commandEvidence(
+    allocator: std.mem.Allocator,
+    io: Io,
+    writer: *Io.Writer,
+    args: []const []const u8,
+) !void {
+    if (args.len != 2 or !std.mem.eql(u8, args[0], "validate")) {
+        return error.InvalidEvidenceCommand;
+    }
+    const ledger = try evidence_ledger.load(allocator, io, args[1]);
+    try evidence_ledger.validate(ledger);
+    try evidence_ledger.printSummary(writer, ledger);
 }
 
 fn commandInit(
@@ -698,6 +736,8 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman [--data PATH] log [DATE] --distance KM [options]
         \\  runningman [--data PATH] history [FROM_DATE] [TO_DATE]
         \\  runningman [--data PATH] compare [--weeks N] [--ending DATE]
+        \\  runningman profile validate RUNNER_PROFILE.json
+        \\  runningman evidence validate EVIDENCE_LEDGER.json
         \\  runningman [--data PATH] plan preview REVISION.json
         \\  runningman [--data PATH] plan apply REVISION.json
         \\  runningman [--data PATH] review [--weeks N] [--ending DATE]
@@ -735,6 +775,49 @@ fn friendlyError(err: anyerror) []const u8 {
         error.ModifiedReasonRequired => "a modified activity requires a reason",
         error.InvalidStatus => "outcome must be completed, modified, skipped, or rested",
         error.InvalidDuration => "duration must be positive whole minutes, MM:SS, or HH:MM:SS",
+        error.InvalidProfileCommand => "profile requires `validate RUNNER_PROFILE.json`",
+        error.RunnerProfileFileNotFound => "the runner profile JSON file was not found",
+        error.InvalidRunnerProfileFile => "the runner profile is not valid JSON in the expected format",
+        error.UnsupportedRunnerProfileSchema => "runner profile schema_version must be 1",
+        error.RunnerProfileIdRequired => "runner profile field `profile_id` cannot be empty",
+        error.InvalidPlanStartDate => "runner profile field `plan_start_date.value` must be a real YYYY-MM-DD date",
+        error.InvalidRaceDate => "runner profile field `goal.race_date.value` must be a real YYYY-MM-DD date",
+        error.UnsupportedPlanLength => "the inclusive span from `plan_start_date.value` through `goal.race_date.value` must be 8–24 weeks",
+        error.InvalidTargetTime => "runner profile field `goal.target_time_seconds.value` must be greater than zero",
+        error.InvalidRunningDayCount => "runner profile field `availability.running_days.value` must contain 3–6 core days",
+        error.DuplicateRunningDay => "runner profile field `availability.running_days.value` contains a duplicate day",
+        error.LongRunDayUnavailable => "runner profile field `preferred_long_run_day.value` must be one of the core running days",
+        error.QualityDayUnavailable => "runner profile field `preferred_quality_day.value` must be one of the core running days",
+        error.QualityDayMatchesLongRunDay => "preferred quality and long-run days must be different",
+        error.OptionalDayIsCoreDay => "runner profile field `optional_recovery_day.value` must not duplicate a core running day",
+        error.InvalidAverageWeeklyDistance => "runner profile field `average_weekly_distance_km.value` must be finite and non-negative",
+        error.InvalidLongestRun => "runner profile field `longest_run_km.value` must be finite and non-negative",
+        error.EmptyWeeklyDistanceHistory => "runner profile field `weekly_distance_history_km.value` cannot be an empty list",
+        error.InvalidWeeklyDistanceHistory => "runner profile field `weekly_distance_history_km.value` contains an invalid distance",
+        error.InvalidPerformanceDate => "a recent performance has an invalid `date`",
+        error.PerformanceAfterPlanStart => "a recent performance date cannot be after `plan_start_date.value`",
+        error.InvalidPerformanceTime => "a recent performance `duration_seconds` must be greater than zero",
+        error.InvalidUnavailableDate => "runner profile field `unavailable_dates.value` contains an invalid date",
+        error.UnavailableDateOutsidePlan => "every unavailable date must fall within the requested plan",
+        error.InvalidEvidenceCommand => "evidence requires `validate EVIDENCE_LEDGER.json`",
+        error.EvidenceLedgerFileNotFound => "the evidence ledger JSON file was not found",
+        error.InvalidEvidenceLedgerFile => "the evidence ledger is not valid JSON in the expected format",
+        error.UnsupportedEvidenceLedgerSchema => "evidence ledger schema_version must be 1",
+        error.EvidenceLedgerIdRequired => "evidence ledger field `ledger_id` cannot be empty",
+        error.EvidenceIdRequired => "every evidence entry needs a non-empty `evidence_id`",
+        error.DuplicateEvidenceId => "evidence ledger field `evidence_id` must be unique",
+        error.InvalidEvidenceCitation => "every evidence entry needs a title, authors, year, and HTTP(S) URL",
+        error.EvidencePopulationRequired => "every evidence entry needs a `population`",
+        error.EvidenceTrainingStatusRequired => "every evidence entry needs a `training_status`",
+        error.EvidenceInterventionRequired => "every evidence entry needs an `intervention`",
+        error.EvidenceComparisonRequired => "every evidence entry needs a `comparison`",
+        error.EvidenceOutcomesRequired => "every evidence entry needs at least one outcome",
+        error.EmptyEvidenceOutcome => "evidence outcomes cannot contain an empty value",
+        error.EvidenceLimitationsRequired => "every evidence entry needs at least one limitation",
+        error.EmptyEvidenceLimitation => "evidence limitations cannot contain an empty value",
+        error.EvidencePlanningImplicationRequired => "every evidence entry needs a `planning_implication`",
+        error.EmptyPolicyRuleId => "policy rule IDs cannot be empty",
+        error.DuplicatePolicyRuleId => "policy rule IDs within an evidence entry must be unique",
         error.MissingPlanAction => "plan requires `preview REVISION.json` or `apply REVISION.json`",
         error.PlanFileRequired => "plan preview/apply requires exactly one revision JSON file",
         error.UnknownPlanAction => "plan action must be preview or apply",

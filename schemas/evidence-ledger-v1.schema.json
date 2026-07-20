@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/horttanainen/runningman/schemas/evidence-ledger-v1.schema.json",
+  "title": "Runningman evidence ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "ledger_id",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "ledger_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "non_empty_string": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "citation",
+        "population",
+        "training_status",
+        "intervention",
+        "comparison",
+        "outcomes",
+        "limitations",
+        "planning_implication",
+        "confidence",
+        "policy_rule_ids"
+      ],
+      "properties": {
+        "evidence_id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "citation": {
+          "$ref": "#/$defs/citation"
+        },
+        "population": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "training_status": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "intervention": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "comparison": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "outcomes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "planning_implication": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "low",
+            "moderate",
+            "high"
+          ]
+        },
+        "policy_rule_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        }
+      }
+    },
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "authors",
+        "year",
+        "url"
+      ],
+      "properties": {
+        "title": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "authors": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "year": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://"
+        }
+      }
+    }
+  }
+}

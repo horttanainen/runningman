@@ -7,6 +7,17 @@ trap 'rm -rf "$temporary_directory"' EXIT
 
 data_file="$temporary_directory/training.jsonl"
 
+"$binary" profile validate examples/runner-profile.json > "$temporary_directory/profile.txt"
+grep -q "Runner profile is valid: example-half-marathon-runner" "$temporary_directory/profile.txt"
+grep -q "target time to be recommended" "$temporary_directory/profile.txt"
+grep -q "Plan span: 91 days" "$temporary_directory/profile.txt"
+test ! -e "$data_file"
+
+"$binary" evidence validate examples/evidence-ledger.json > "$temporary_directory/evidence.txt"
+grep -q "Evidence ledger is valid: half-marathon-research-example" "$temporary_directory/evidence.txt"
+grep -q "Entries: 1 (0 linked to at least one policy rule)" "$temporary_directory/evidence.txt"
+test ! -e "$data_file"
+
 "$binary" --data "$data_file" init 2026-07-20 > "$temporary_directory/init.txt"
 grep -q "immutable 13-week periodized running schedule" "$temporary_directory/init.txt"
 

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "ledger_id": "half-marathon-research-example",
+  "entries": [
+    {
+      "evidence_id": "EXAMPLE-001",
+      "citation": {
+        "title": "Example evidence record for schema review",
+        "authors": "Replace during the Increment 2 research review",
+        "year": 2026,
+        "url": "https://example.com/running-evidence"
+      },
+      "population": "Example recreational endurance runners",
+      "training_status": "Example only; not an approved evidence classification",
+      "intervention": "Example structured training policy",
+      "comparison": "Example unstructured training",
+      "outcomes": [
+        "Demonstrates how outcomes are recorded"
+      ],
+      "limitations": [
+        "This is schema demonstration data, not research evidence"
+      ],
+      "planning_implication": "No planning implication is approved from this example.",
+      "confidence": "low",
+      "policy_rule_ids": []
+    }
+  ]
+}

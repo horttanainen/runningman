@@ -1,0 +1,403 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/horttanainen/runningman/schemas/runner-profile-v1.schema.json",
+  "title": "Runningman runner profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile_id",
+    "plan_start_date",
+    "goal",
+    "availability",
+    "baseline",
+    "constraints"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan_start_date": {
+      "$ref": "#/$defs/sourced_date"
+    },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "race_date",
+        "race_distance",
+        "intent"
+      ],
+      "properties": {
+        "race_date": {
+          "$ref": "#/$defs/sourced_date"
+        },
+        "race_distance": {
+          "$ref": "#/$defs/sourced_race_distance"
+        },
+        "intent": {
+          "$ref": "#/$defs/sourced_goal_intent"
+        },
+        "target_time_seconds": {
+          "$ref": "#/$defs/sourced_positive_integer"
+        }
+      }
+    },
+    "availability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "running_days",
+        "preferred_long_run_day"
+      ],
+      "properties": {
+        "running_days": {
+          "$ref": "#/$defs/sourced_running_days"
+        },
+        "preferred_long_run_day": {
+          "$ref": "#/$defs/sourced_weekday"
+        },
+        "preferred_quality_day": {
+          "$ref": "#/$defs/sourced_weekday"
+        },
+        "optional_recovery_day": {
+          "$ref": "#/$defs/sourced_weekday"
+        }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "average_weekly_distance_km",
+        "longest_run_km",
+        "recent_performances"
+      ],
+      "properties": {
+        "average_weekly_distance_km": {
+          "$ref": "#/$defs/sourced_non_negative_number"
+        },
+        "longest_run_km": {
+          "$ref": "#/$defs/sourced_non_negative_number"
+        },
+        "recent_performances": {
+          "$ref": "#/$defs/sourced_performances"
+        },
+        "weekly_distance_history_km": {
+          "$ref": "#/$defs/sourced_distance_history"
+        }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recent_training_interruption_days"
+      ],
+      "properties": {
+        "recent_training_interruption_days": {
+          "$ref": "#/$defs/sourced_non_negative_integer"
+        },
+        "unavailable_dates": {
+          "$ref": "#/$defs/sourced_dates"
+        },
+        "notes": {
+          "$ref": "#/$defs/sourced_string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "string",
+      "enum": [
+        "measured",
+        "user_entered",
+        "derived",
+        "defaulted"
+      ]
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "weekday": {
+      "type": "string",
+      "enum": [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday"
+      ]
+    },
+    "sourced_date": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/date"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_race_distance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "const": "half_marathon"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_goal_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "string",
+          "enum": [
+            "finish_comfortably",
+            "performance"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_weekday": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/weekday"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_running_days": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/weekday"
+          }
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_positive_integer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_non_negative_integer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_non_negative_number": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "number",
+          "minimum": 0
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "recent_performance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "distance",
+        "duration_seconds",
+        "kind",
+        "effort"
+      ],
+      "properties": {
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "distance": {
+          "type": "string",
+          "enum": [
+            "five_km",
+            "ten_km",
+            "half_marathon"
+          ]
+        },
+        "duration_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "race",
+            "time_trial",
+            "training"
+          ]
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "easy",
+            "moderate",
+            "hard",
+            "maximal",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "sourced_performances": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/recent_performance"
+          }
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_distance_history": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_dates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/date"
+          }
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_string": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    }
+  }
+}

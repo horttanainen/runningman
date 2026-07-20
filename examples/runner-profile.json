@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "profile_id": "example-half-marathon-runner",
+  "plan_start_date": {
+    "value": "2026-07-20",
+    "source": "user_entered"
+  },
+  "goal": {
+    "race_date": {
+      "value": "2026-10-18",
+      "source": "user_entered"
+    },
+    "race_distance": {
+      "value": "half_marathon",
+      "source": "user_entered"
+    },
+    "intent": {
+      "value": "performance",
+      "source": "user_entered"
+    }
+  },
+  "availability": {
+    "running_days": {
+      "value": [
+        "monday",
+        "tuesday",
+        "thursday",
+        "saturday"
+      ],
+      "source": "user_entered"
+    },
+    "preferred_long_run_day": {
+      "value": "saturday",
+      "source": "user_entered"
+    },
+    "preferred_quality_day": {
+      "value": "tuesday",
+      "source": "user_entered"
+    },
+    "optional_recovery_day": {
+      "value": "wednesday",
+      "source": "user_entered"
+    }
+  },
+  "baseline": {
+    "average_weekly_distance_km": {
+      "value": 30,
+      "source": "derived"
+    },
+    "longest_run_km": {
+      "value": 15,
+      "source": "measured"
+    },
+    "recent_performances": {
+      "value": [
+        {
+          "date": "2026-06-15",
+          "distance": "ten_km",
+          "duration_seconds": 3180,
+          "kind": "time_trial",
+          "effort": "maximal"
+        }
+      ],
+      "source": "measured"
+    },
+    "weekly_distance_history_km": {
+      "value": [
+        27.5,
+        31.2,
+        29.8,
+        32.1
+      ],
+      "source": "measured"
+    }
+  },
+  "constraints": {
+    "recent_training_interruption_days": {
+      "value": 0,
+      "source": "user_entered"
+    },
+    "unavailable_dates": {
+      "value": [],
+      "source": "user_entered"
+    }
+  }
+}

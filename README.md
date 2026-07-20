@@ -8,6 +8,45 @@ ChatGPT.
 The training log is append-only JSONL. Corrections and schedule changes add new
 records instead of silently changing history.
 
+## Validate planning inputs
+
+Phase 1 of the general half-marathon planner begins with standalone, versioned
+runner-profile and evidence-ledger documents. Validate the committed examples:
+
+```sh
+./zig-out/bin/runningman profile validate examples/runner-profile.json
+./zig-out/bin/runningman evidence validate examples/evidence-ledger.json
+```
+
+These commands do not read or create the personal training log. Increment 1
+validates planning inputs only; generating a schedule from a runner profile will
+be added after the input model has been reviewed.
+
+The canonical JSON Schemas are:
+
+- [`schemas/runner-profile-v1.schema.json`](schemas/runner-profile-v1.schema.json)
+- [`schemas/evidence-ledger-v1.schema.json`](schemas/evidence-ledger-v1.schema.json)
+
+Runner inputs are represented as a `value` plus one of these sources:
+
+- `measured`
+- `user_entered`
+- `derived`
+- `defaulted`
+
+This prevents a later plan explanation from presenting a default or estimate as
+measured fact. A target time is optional. If it is omitted, the later baseline
+assessment will recommend a supported target or outcome range. The
+`recent_performances.value` list may be empty, but it must still be present so
+that missing performance evidence is explicit.
+
+The first profile version supports half-marathon plans spanning 8–24 weeks and
+3–6 core running days. Profile validation also checks date ordering, day
+availability, numeric baselines, recent performances, and known unavailable
+dates. The evidence ledger requires traceable citations, populations,
+comparisons, outcomes, limitations, confidence, planning implications, and
+stable policy-rule links.
+
 ## Build and test
 
 Zig 0.16 is required:
