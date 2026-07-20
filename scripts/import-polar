@@ -1,0 +1,326 @@
+#!/bin/sh
+set -eu
+
+script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repository_root=$(dirname "$script_directory")
+ocr_source="$script_directory/polar_ocr.m"
+ocr_binary="$repository_root/.zig-cache/polar-ocr"
+
+data_path="runningman-data.jsonl"
+date_override=""
+dry_run=false
+fixture_path=""
+build_only=false
+image_path=""
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ./scripts/import-polar [--date YYYY-MM-DD] [--data PATH] [--dry-run] IMAGE
+
+Recognizes Polar Beat values locally, shows the inference, opens the generated
+runningman command in $EDITOR, and executes it after the editor exits normally.
+
+Options:
+  --date YYYY-MM-DD  Override the date inferred from the screenshot filename
+  --data PATH        Use a non-default runningman JSONL file
+  --dry-run          Print the editable command without opening an editor
+  -h, --help         Show this help
+EOF
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+require_value() {
+    option=$1
+    count=$2
+    if [ "$count" -lt 2 ]; then
+        fail "$option requires a value"
+    fi
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --date)
+            require_value "$1" "$#"
+            date_override=$2
+            shift 2
+            ;;
+        --data)
+            require_value "$1" "$#"
+            data_path=$2
+            shift 2
+            ;;
+        --dry-run)
+            dry_run=true
+            shift
+            ;;
+        --ocr-fixture)
+            require_value "$1" "$#"
+            fixture_path=$2
+            shift 2
+            ;;
+        --build-only)
+            build_only=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            fail "unknown option $1"
+            ;;
+        *)
+            if [ -n "$image_path" ]; then
+                fail "expected exactly one screenshot path"
+            fi
+            image_path=$1
+            shift
+            ;;
+    esac
+done
+
+build_ocr() {
+    mkdir -p "$(dirname "$ocr_binary")"
+    if [ ! -x "$ocr_binary" ] || [ "$ocr_source" -nt "$ocr_binary" ]; then
+        clang \
+            -fobjc-arc \
+            -O2 \
+            -framework Foundation \
+            -framework Vision \
+            "$ocr_source" \
+            -o "$ocr_binary"
+    fi
+}
+
+build_ocr
+if [ "$build_only" = true ]; then
+    exit 0
+fi
+
+if [ -z "$image_path" ]; then
+    fail "expected one screenshot path; use --help for usage"
+fi
+if [ ! -f "$image_path" ]; then
+    fail "screenshot not found: $image_path"
+fi
+
+if [ -n "$date_override" ]; then
+    workout_date=$date_override
+else
+    workout_date=$(basename "$image_path" | sed -E -n 's/.*(20[0-9]{2}-[0-9]{2}-[0-9]{2}).*/\1/p')
+fi
+if [ -z "$workout_date" ]; then
+    fail "could not infer a date from the filename; use --date YYYY-MM-DD"
+fi
+validated_date=$(date -j -f '%Y-%m-%d' "$workout_date" '+%Y-%m-%d' 2>/dev/null || true)
+if [ "$validated_date" != "$workout_date" ]; then
+    fail "invalid date $workout_date; expected YYYY-MM-DD"
+fi
+
+temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/runningman-polar.XXXXXX")
+trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
+ocr_json="$temporary_directory/ocr.json"
+command_file="$temporary_directory/import.zsh"
+
+if [ -n "$fixture_path" ]; then
+    "$ocr_binary" --fixture "$fixture_path" "$image_path" > "$ocr_json"
+else
+    "$ocr_binary" "$image_path" > "$ocr_json"
+fi
+
+json_value() {
+    /usr/bin/plutil -extract "$1" raw -o - "$ocr_json" 2>/dev/null || true
+}
+
+duration=$(json_value duration)
+average_heart_rate=$(json_value average_heart_rate)
+maximum_heart_rate=$(json_value maximum_heart_rate)
+calories=$(json_value calories)
+fat_burn_percent=$(json_value fat_burn_percent)
+training_benefit=$(json_value training_benefit)
+
+image_name=$(basename "$image_path")
+image_hash=$(shasum -a 256 "$image_path" | awk '{print $1}')
+
+existing_activity_count=0
+image_already_imported=false
+if [ -f "$data_path" ]; then
+    existing_activity_count=$(
+        awk -v target="\"date\":\"$workout_date\"" '
+            index($0, "\"type\":\"activity\"") && index($0, target) { count += 1 }
+            END { print count + 0 }
+        ' "$data_path"
+    )
+    if grep -Fq "source_sha256=$image_hash" "$data_path"; then
+        image_already_imported=true
+    fi
+fi
+
+notes="Polar Beat import"
+append_note() {
+    value=$1
+    if [ -n "$value" ]; then
+        notes="$notes; $value"
+    fi
+}
+
+if [ -n "$maximum_heart_rate" ]; then
+    append_note "max HR $maximum_heart_rate bpm"
+fi
+if [ -n "$calories" ]; then
+    append_note "$calories kcal"
+fi
+if [ -n "$fat_burn_percent" ]; then
+    append_note "fat burn $fat_burn_percent%"
+fi
+if [ -n "$training_benefit" ]; then
+    append_note "training benefit $training_benefit"
+fi
+
+zones=""
+zone=1
+while [ "$zone" -le 5 ]; do
+    zone_duration=$(json_value "zone_durations.$zone")
+    if [ -n "$zone_duration" ]; then
+        if [ -n "$zones" ]; then
+            zones="$zones, "
+        fi
+        zones="${zones}Z${zone} ${zone_duration}"
+    fi
+    zone=$((zone + 1))
+done
+if [ -n "$zones" ]; then
+    append_note "HR zones $zones"
+fi
+append_note "source $image_name"
+append_note "source_sha256=$image_hash"
+
+shell_quote() {
+    escaped=$(printf '%s' "$1" | sed "s/'/'\\\"'\\\"'/g")
+    printf "'%s'" "$escaped"
+}
+
+runningman_binary=${RUNNINGMAN_BIN:-"$repository_root/zig-out/bin/runningman"}
+if [ ! -x "$runningman_binary" ]; then
+    fail "runningman executable not found at $runningman_binary; run ./check.sh first"
+fi
+
+if [ "$data_path" = "runningman-data.jsonl" ]; then
+    planned_output=$(
+        "$runningman_binary" today "$workout_date" 2>/dev/null || true
+    )
+else
+    planned_output=$(
+        "$runningman_binary" --data "$data_path" today "$workout_date" 2>/dev/null || true
+    )
+fi
+planned_distance=$(
+    printf '%s\n' "$planned_output" |
+        sed -E -n 's/^Planned distance: ([0-9]+([.][0-9]+)?) km$/\1/p' |
+        head -n 1
+)
+
+{
+    printf '%s\n' '#!/bin/zsh' 'set -e' ''
+    printf '# Generated from %s.\n' "$image_name"
+    printf '%s\n' \
+        '# Edit any inferred value before saving and exiting.' \
+        '# For optional fields, replace the placeholder and remove the leading "#".' \
+        "# For a modified workout, change the outcome and add: --reason '...'"
+    if [ "$existing_activity_count" -gt 0 ]; then
+        printf '%s\n' '# WARNING: this date already has an activity; running this creates an append-only correction.'
+    fi
+    if [ "$image_already_imported" = true ]; then
+        printf '%s\n' '# WARNING: this exact image hash already appears in the data file.'
+    fi
+    printf '\n%s\n' 'command=('
+    printf '  %s\n' "$(shell_quote "$runningman_binary")"
+    if [ "$data_path" != "runningman-data.jsonl" ]; then
+        printf '  --data %s\n' "$(shell_quote "$data_path")"
+    fi
+    printf '  log %s\n' "$(shell_quote "$workout_date")"
+    printf '%s\n' '  --outcome completed'
+    if [ -n "$duration" ]; then
+        printf '  --duration %s\n' "$(shell_quote "$duration")"
+    fi
+    if [ -n "$average_heart_rate" ]; then
+        printf '  --avg-hr %s\n' "$average_heart_rate"
+    fi
+    printf '%s\n' '' '  # Optional fields: edit the value, then uncomment the line.'
+    if [ -n "$planned_distance" ]; then
+        printf '  # --distance %s  # planned distance\n' "$planned_distance"
+    else
+        printf '%s\n' '  # --distance KM'
+    fi
+    printf '%s\n' '  # --rpe 1-10' '  # --pain 0-10' ''
+    printf '  --notes %s\n' "$(shell_quote "$notes")"
+    printf '%s\n' ')' '' '"${command[@]}"'
+} > "$command_file"
+
+if [ "$dry_run" = true ]; then
+    cat "$command_file"
+    exit 0
+fi
+
+printf '%s\n' 'Inferred Polar Beat workout:'
+printf '  Date:       %s\n' "$workout_date"
+printf '  Duration:   %s\n' "${duration:-not found}"
+if [ -n "$average_heart_rate" ]; then
+    printf '  Average HR: %s bpm\n' "$average_heart_rate"
+else
+    printf '%s\n' '  Average HR: not found'
+fi
+if [ -n "$maximum_heart_rate" ]; then
+    printf '  Maximum HR: %s bpm\n' "$maximum_heart_rate"
+else
+    printf '%s\n' '  Maximum HR: not found'
+fi
+if [ -n "$calories" ]; then
+    printf '  Calories:   %s kcal\n' "$calories"
+else
+    printf '%s\n' '  Calories:   not found'
+fi
+if [ -n "$fat_burn_percent" ]; then
+    printf '  Fat burn:   %s%%\n' "$fat_burn_percent"
+else
+    printf '%s\n' '  Fat burn:   not found'
+fi
+printf '  Benefit:    %s\n' "${training_benefit:-not found}"
+printf '  HR zones:   %s\n' "${zones:-not found}"
+printf '%s\n' '  Missing:    distance, RPE, pain'
+if [ "$existing_activity_count" -gt 0 ]; then
+    printf '  Warning:    %s existing activity record(s) for this date; this will be a correction.\n' "$existing_activity_count"
+fi
+if [ "$image_already_imported" = true ]; then
+    printf '%s\n' '  Warning:    this exact screenshot was already imported.'
+fi
+
+printf '\n%s' 'Use these values as the initial command? Saving and exiting the editor will run it. [Y/n] '
+IFS= read -r answer || answer=""
+case "$answer" in
+    n|N|no|NO|No)
+        printf '%s\n' 'Import cancelled.'
+        exit 0
+        ;;
+esac
+
+editor=${EDITOR:-vi}
+if /bin/zsh -lc "$editor $(shell_quote "$command_file")"; then
+    :
+else
+    status=$?
+    printf 'Editor exited with status %s; import cancelled.\n' "$status"
+    exit 0
+fi
+
+if ! grep -Ev '^[[:space:]]*(#|$|set -e)' "$command_file" >/dev/null; then
+    printf '%s\n' 'The edited command was empty; import cancelled.'
+    exit 0
+fi
+
+/bin/zsh "$command_file"

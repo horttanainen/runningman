@@ -1,4 +1,6 @@
 /.zig-cache/
 /zig-out/
+/.DS_Store
+/polar_beat_screenshots/
 /*.jsonl
 /weekly-check-in*.md

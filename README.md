@@ -139,6 +139,60 @@ recovery signal in weekly reports.
 Duration accepts whole minutes (`44`), minutes and seconds (`44:30`), or hours,
 minutes, and seconds (`1:03:10`).
 
+## Import a Polar Beat screenshot
+
+On macOS, a Polar Beat summary screenshot can be recognized locally with
+Apple's Vision framework:
+
+```sh
+./scripts/import-polar \
+  "polar_beat_screenshots/Screenshot 2026-07-20 at 19.01.46.png"
+```
+
+The importer reads the date from the filename and extracts visible values such
+as duration, average and maximum heart rate, calories, fat-burn percentage,
+training benefit, and heart-rate-zone durations. OCR uses recognized labels and
+their relative positions, so small crop and scale differences do not require
+fixed screenshot coordinates.
+
+The script displays its inference and asks whether to use those values as the
+starting point. If accepted, it opens a complete `runningman log` command in
+`$EDITOR`, falling back to `vi`. Add missing values, correct OCR results, or
+change the outcome in that file. Saving and exiting successfully runs the
+edited command immediately. Exit the editor with a non-zero status—for example,
+Vim's `:cq`—to cancel without recording anything.
+
+Missing fields appear as commented options inside the editable command.
+Distance uses the active workout's planned distance as its suggested value when
+the plan has one. RPE and pain remain placeholders because they must describe
+what actually happened.
+
+For a GUI editor, configure it to wait until the file is closed:
+
+```sh
+EDITOR="code --wait" ./scripts/import-polar SCREENSHOT.png
+```
+
+Preview the generated editor file without recording:
+
+```sh
+./scripts/import-polar --dry-run SCREENSHOT.png
+```
+
+Override a missing or incorrect filename date, or select another data file:
+
+```sh
+./scripts/import-polar --date 2026-07-20 SCREENSHOT.png
+./scripts/import-polar --data ~/training/running.jsonl SCREENSHOT.png
+```
+
+Duration and average HR populate their dedicated activity fields. Other Polar
+values and a SHA-256 source-image identifier are preserved in notes. Distance,
+RPE, and pain remain explicitly missing for manual entry. If the date already
+has an activity, the editor file warns that running it will create an
+append-only correction. Reimporting the exact same image also produces a
+warning.
+
 ## Review training
 
 Show daily plan versus reality:
