@@ -1,0 +1,4 @@
+/.zig-cache/
+/zig-out/
+/*.jsonl
+/weekly-check-in*.md

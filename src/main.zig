@@ -1,0 +1,766 @@
+const std = @import("std");
+const activity = @import("activity.zig");
+const check_in = @import("check_in.zig");
+const date = @import("date.zig");
+const model = @import("model.zig");
+const report = @import("report.zig");
+const schedule = @import("schedule.zig");
+const store = @import("store.zig");
+
+const Io = std.Io;
+const default_data_path = "runningman-data.jsonl";
+
+const LogCommand = struct {
+    target_date: date.Date,
+    input: activity.Input = .{},
+    interactive: bool = false,
+};
+
+const CompareCommand = struct {
+    weeks: u8 = 4,
+    ending: date.Date,
+};
+
+const ExportFormat = enum {
+    jsonl,
+    markdown,
+};
+
+const ExportCommand = struct {
+    format: ExportFormat = .markdown,
+    weeks: u8 = 4,
+    ending: date.Date,
+};
+
+const CheckInCommand = struct {
+    target_date: date.Date,
+    sleep_score: ?u8 = null,
+    readiness_score: ?u8 = null,
+    notes: []const u8 = "",
+    interactive: bool = false,
+};
+
+const ScheduleCommand = struct {
+    weeks: u8 = 4,
+    start: date.Date,
+};
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
+    const args = try init.minimal.args.toSlice(allocator);
+
+    var stdout_buffer: [8192]u8 = undefined;
+    var stdout_file_writer: Io.File.Writer = .init(.stdout(), init.io, &stdout_buffer);
+    const stdout = &stdout_file_writer.interface;
+    defer stdout_file_writer.flush() catch {};
+
+    var stderr_buffer: [2048]u8 = undefined;
+    var stderr_file_writer: Io.File.Writer = .init(.stderr(), init.io, &stderr_buffer);
+    const stderr = &stderr_file_writer.interface;
+    defer stderr_file_writer.flush() catch {};
+
+    var stdin_buffer: [4096]u8 = undefined;
+    var stdin_file_reader: Io.File.Reader = .init(.stdin(), init.io, &stdin_buffer);
+    const stdin = &stdin_file_reader.interface;
+
+    run(allocator, init.io, stdin, stdout, args) catch |err| {
+        try stderr.print("Error: {s}\n\n", .{friendlyError(err)});
+        try printUsage(stderr);
+        try stderr_file_writer.flush();
+        std.process.exit(1);
+    };
+}
+
+fn run(
+    allocator: std.mem.Allocator,
+    io: Io,
+    reader: *Io.Reader,
+    writer: *Io.Writer,
+    args: []const []const u8,
+) !void {
+    var arg_index: usize = 1;
+    var data_path: []const u8 = default_data_path;
+    if (arg_index < args.len and std.mem.eql(u8, args[arg_index], "--data")) {
+        arg_index += 1;
+        if (arg_index >= args.len) return error.MissingDataPath;
+        data_path = args[arg_index];
+        arg_index += 1;
+    }
+
+    const command = if (arg_index < args.len) args[arg_index] else "today";
+    if (arg_index < args.len) arg_index += 1;
+    const command_args = args[arg_index..];
+
+    if (std.mem.eql(u8, command, "help") or std.mem.eql(u8, command, "--help")) {
+        try printUsage(writer);
+        return;
+    }
+    if (std.mem.eql(u8, command, "init")) {
+        try commandInit(allocator, io, writer, data_path, command_args);
+        return;
+    }
+    var storage: store.Store = .{};
+    defer store.deinit(&storage, allocator);
+    try store.load(&storage, allocator, io, data_path);
+    if (storage.schedules.count() == 0) return error.NotInitialized;
+
+    if (std.mem.eql(u8, command, "today")) {
+        try commandToday(writer, &storage, command_args);
+    } else if (std.mem.eql(u8, command, "log")) {
+        try commandLog(allocator, io, reader, writer, data_path, &storage, command_args);
+    } else if (std.mem.eql(u8, command, "check-in")) {
+        try commandCheckIn(allocator, io, reader, writer, data_path, &storage, command_args);
+    } else if (std.mem.eql(u8, command, "schedule")) {
+        try commandSchedule(writer, &storage, command_args);
+    } else if (std.mem.eql(u8, command, "history")) {
+        try commandHistory(allocator, writer, &storage, command_args);
+    } else if (std.mem.eql(u8, command, "compare")) {
+        try commandCompare(writer, &storage, command_args);
+    } else if (std.mem.eql(u8, command, "revise")) {
+        try commandRevise(allocator, io, writer, data_path, &storage, command_args);
+    } else if (std.mem.eql(u8, command, "export")) {
+        try commandExport(allocator, io, writer, data_path, &storage, command_args);
+    } else {
+        return error.UnknownCommand;
+    }
+}
+
+fn commandInit(
+    allocator: std.mem.Allocator,
+    io: Io,
+    writer: *Io.Writer,
+    data_path: []const u8,
+    args: []const []const u8,
+) !void {
+    var existing: store.Store = .{};
+    defer store.deinit(&existing, allocator);
+    try store.load(&existing, allocator, io, data_path);
+    if (existing.schedules.count() != 0) return error.AlreadyInitialized;
+
+    const start = if (args.len == 0) date.today() else try date.parse(args[0]);
+    if (args.len > 1) return error.UnexpectedArgument;
+    if (date.weekday(start) != 0) return error.StartMustBeMonday;
+
+    const events = try schedule.createInitialEvents(allocator, start, date.unixTimestamp());
+    try store.append(io, data_path, events);
+    const start_text = try date.format(allocator, start);
+    try writer.print(
+        "Created an immutable 12-week running schedule starting {s}.\nData: {s}\n",
+        .{ start_text, data_path },
+    );
+    try writer.writeAll("Weeks 1–11 follow the supplied plan; race-week days remain explicitly unspecified.\n\n");
+
+    var initialized: store.Store = .{};
+    defer store.deinit(&initialized, allocator);
+    try store.load(&initialized, allocator, io, data_path);
+    if (store.currentWorkout(&initialized, date.today()) != null) {
+        try writer.writeAll("Today's schedule:\n");
+        try printDay(writer, &initialized, date.today());
+    }
+}
+
+fn commandToday(
+    writer: *Io.Writer,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    if (args.len > 1) return error.UnexpectedArgument;
+    const target_date = if (args.len == 1) try date.parse(args[0]) else date.today();
+    try printDay(writer, storage, target_date);
+}
+
+fn commandLog(
+    allocator: std.mem.Allocator,
+    io: Io,
+    reader: *Io.Reader,
+    writer: *Io.Writer,
+    data_path: []const u8,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    var command = try parseLogCommand(args);
+    const previous = store.latestActivityForDate(storage, command.target_date);
+    const schedule_id: u64 = if (previous) |existing|
+        existing.schedule_id
+    else
+        (store.effectiveSchedule(storage, command.target_date) orelse
+            return error.NoScheduleForDate).id;
+    const workout = if (previous) |existing|
+        storage.workouts.get(existing.workout_id) orelse return error.NoWorkoutForDate
+    else
+        store.workoutForDate(storage, schedule_id, command.target_date) orelse
+            return error.NoWorkoutForDate;
+
+    if (command.interactive) {
+        try writer.print(
+            "{s}, {s}: {s}\n{s}\n\n",
+            .{ workout.day, workout.date, workout.kind, workout.details },
+        );
+        command.input = try promptForActivity(allocator, reader, writer);
+    }
+
+    const date_text = try date.format(allocator, command.target_date);
+    const value = try activity.make(
+        storage.max_activity_id + 1,
+        if (previous) |existing| existing.id else null,
+        schedule_id,
+        workout.id,
+        date_text,
+        command.input,
+        date.unixTimestamp(),
+    );
+    const events = [_]model.Event{model.activityEvent(value)};
+    try store.append(io, data_path, &events);
+
+    if (previous != null) {
+        try writer.print(
+            "Recorded correction #{d} for {s}; it supersedes activity #{d}.\n",
+            .{ value.id, value.date, previous.?.id },
+        );
+    } else {
+        try writer.print(
+            "Recorded {s} for {s} against schedule #{d}, workout #{d}.\n",
+            .{ @tagName(value.status), value.date, value.schedule_id, value.workout_id },
+        );
+    }
+}
+
+fn commandCheckIn(
+    allocator: std.mem.Allocator,
+    io: Io,
+    reader: *Io.Reader,
+    writer: *Io.Writer,
+    data_path: []const u8,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    var command = try parseCheckInCommand(args);
+    if (command.interactive) {
+        const sleep_text = try prompt(allocator, reader, writer, "Oura Sleep Score, 0–100: ");
+        const readiness_text = try prompt(allocator, reader, writer, "Oura Readiness Score, 0–100: ");
+        command.sleep_score = try std.fmt.parseInt(u8, sleep_text, 10);
+        command.readiness_score = try std.fmt.parseInt(u8, readiness_text, 10);
+        command.notes = try prompt(allocator, reader, writer, "Morning notes (optional): ");
+    }
+
+    const previous = store.latestCheckInForDate(storage, command.target_date);
+    const value = try check_in.make(
+        storage.max_check_in_id + 1,
+        if (previous) |existing| existing.id else null,
+        try date.format(allocator, command.target_date),
+        .{
+            .sleep_score = command.sleep_score orelse return error.SleepScoreRequired,
+            .readiness_score = command.readiness_score orelse return error.ReadinessScoreRequired,
+            .notes = command.notes,
+        },
+        date.unixTimestamp(),
+    );
+    const events = [_]model.Event{model.morningCheckInEvent(value)};
+    try store.append(io, data_path, &events);
+
+    if (previous) |existing| {
+        try writer.print(
+            "Recorded morning check-in #{d} for {s}; it supersedes check-in #{d}.\n",
+            .{ value.id, value.date, existing.id },
+        );
+    } else {
+        try writer.print(
+            "Recorded Oura Sleep {d} and Readiness {d} for {s}.\n",
+            .{ value.sleep_score, value.readiness_score, value.date },
+        );
+    }
+}
+
+fn commandSchedule(
+    writer: *Io.Writer,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    const command = try parseScheduleCommand(args);
+    try report.printSchedule(writer, storage, command.start, command.weeks);
+}
+
+fn commandHistory(
+    allocator: std.mem.Allocator,
+    writer: *Io.Writer,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    if (args.len > 2) return error.UnexpectedArgument;
+    const start = if (args.len >= 1)
+        try date.parse(args[0])
+    else
+        store.earliestScheduleDate(storage) orelse return error.NotInitialized;
+    const end = if (args.len == 2) try date.parse(args[1]) else date.today();
+    try validateRange(start, end);
+    try report.printHistory(allocator, writer, storage, start, end);
+}
+
+fn commandCompare(
+    writer: *Io.Writer,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    const command = try parseCompareCommand(args);
+    const days: i32 = @as(i32, command.weeks) * 7;
+    const start = date.addDays(command.ending, -(days - 1));
+    const previous_end = date.addDays(start, -1);
+    const previous_start = date.addDays(previous_end, -(days - 1));
+    try report.printComparison(writer, storage, start, command.ending, previous_start, previous_end);
+}
+
+fn commandRevise(
+    allocator: std.mem.Allocator,
+    io: Io,
+    writer: *Io.Writer,
+    data_path: []const u8,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    const input = try parseRevisionInput(args);
+    const parent = storage.schedules.get(storage.max_schedule_id) orelse return error.NoScheduleForDate;
+    const events = try schedule.createRevisionEvents(
+        allocator,
+        &storage.schedules,
+        &storage.workouts,
+        parent.id,
+        storage.max_schedule_id + 1,
+        storage.max_workout_id + 1,
+        input,
+        date.unixTimestamp(),
+    );
+    try store.append(io, data_path, events);
+    try writer.print(
+        "Created complete schedule snapshot #{d}, effective {s}, with {d} planned workouts.\n",
+        .{ storage.max_schedule_id + 1, events[0].effective_from.?, events.len - 1 },
+    );
+}
+
+fn commandExport(
+    allocator: std.mem.Allocator,
+    io: Io,
+    writer: *Io.Writer,
+    data_path: []const u8,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    const command = try parseExportCommand(args);
+    if (command.format == .jsonl) {
+        try exportJsonl(allocator, io, writer, data_path);
+        return;
+    }
+
+    const days: i32 = @as(i32, command.weeks) * 7;
+    const start = date.addDays(command.ending, -(days - 1));
+    try report.printMarkdown(allocator, writer, storage, start, command.ending);
+}
+
+fn exportJsonl(
+    allocator: std.mem.Allocator,
+    io: Io,
+    writer: *Io.Writer,
+    data_path: []const u8,
+) !void {
+    const contents = Io.Dir.cwd().readFileAlloc(
+        io,
+        data_path,
+        allocator,
+        .limited(16 * 1024 * 1024),
+    ) catch |err| switch (err) {
+        error.FileNotFound => return error.NotInitialized,
+        else => return err,
+    };
+    try writer.writeAll(contents);
+}
+
+fn printDay(writer: *Io.Writer, storage: *const store.Store, target_date: date.Date) !void {
+    const active_schedule = store.effectiveSchedule(storage, target_date) orelse
+        return error.NoScheduleForDate;
+    const workout = store.workoutForDate(storage, active_schedule.id, target_date) orelse
+        return error.NoWorkoutForDate;
+
+    try writer.print(
+        "{s}, {s} — week {d}\n{s}\nIntensity: {s}",
+        .{ workout.day, workout.date, workout.week, workout.details, workout.intensity },
+    );
+    if (workout.distance_min_km != null or workout.distance_max_km != null) {
+        try writer.writeAll("\nPlanned distance: ");
+        try printDistanceRange(writer, workout.distance_min_km, workout.distance_max_km);
+    }
+    try writer.print("\nSchedule #{d}, workout #{d}\n", .{ active_schedule.id, workout.id });
+
+    if (store.latestActivityForDate(storage, target_date)) |logged| {
+        try writer.writeAll("Recorded: ");
+        try report.printActivity(writer, logged);
+    } else {
+        try writer.print(
+            "\nRecord it interactively:\n  runningman log {s}\n\n" ++
+                "Or with flags:\n  runningman log {s} --distance KM --duration MM:SS --avg-hr BPM --rpe 1-10 --pain 0-10 --notes \"...\"\n",
+            .{ workout.date, workout.date },
+        );
+    }
+
+    if (store.latestCheckInForDate(storage, target_date)) |morning| {
+        try writer.print(
+            "Morning Oura: Sleep {d}/100, Readiness {d}/100",
+            .{ morning.sleep_score, morning.readiness_score },
+        );
+        if (morning.notes.len != 0) try writer.print(", {s}", .{morning.notes});
+        try writer.writeByte('\n');
+    } else {
+        try writer.print(
+            "\nRecord this morning's Oura scores:\n  runningman check-in {s}\n",
+            .{workout.date},
+        );
+    }
+}
+
+fn parseLogCommand(args: []const []const u8) !LogCommand {
+    var result: LogCommand = .{ .target_date = date.today() };
+    var index: usize = 0;
+    if (args.len > 0 and !std.mem.startsWith(u8, args[0], "--")) {
+        result.target_date = try date.parse(args[0]);
+        index = 1;
+    }
+    if (index == args.len) {
+        result.interactive = true;
+        return result;
+    }
+
+    while (index < args.len) {
+        const flag = args[index];
+        index += 1;
+        if (std.mem.eql(u8, flag, "--skipped")) {
+            result.input.status = .skipped;
+            continue;
+        }
+        if (std.mem.eql(u8, flag, "--rested")) {
+            result.input.status = .rested;
+            continue;
+        }
+        if (std.mem.eql(u8, flag, "--modified")) {
+            result.input.status = .modified;
+            continue;
+        }
+        if (index >= args.len) return error.MissingFlagValue;
+        const value = args[index];
+        index += 1;
+
+        if (std.mem.eql(u8, flag, "--outcome")) {
+            result.input.status = try activity.parseStatus(value);
+        } else if (std.mem.eql(u8, flag, "--distance")) {
+            result.input.distance_km = try parseFloat(value);
+        } else if (std.mem.eql(u8, flag, "--duration")) {
+            result.input.duration_seconds = try activity.parseDuration(value);
+        } else if (std.mem.eql(u8, flag, "--avg-hr")) {
+            result.input.average_heart_rate = try std.fmt.parseInt(u16, value, 10);
+        } else if (std.mem.eql(u8, flag, "--rpe")) {
+            result.input.rpe = try std.fmt.parseInt(u8, value, 10);
+        } else if (std.mem.eql(u8, flag, "--pain")) {
+            result.input.pain = try std.fmt.parseInt(u8, value, 10);
+        } else if (std.mem.eql(u8, flag, "--pain-location")) {
+            result.input.pain_location = value;
+        } else if (std.mem.eql(u8, flag, "--reason")) {
+            result.input.deviation_reason = value;
+        } else if (std.mem.eql(u8, flag, "--notes")) {
+            result.input.notes = value;
+        } else {
+            return error.UnknownFlag;
+        }
+    }
+    return result;
+}
+
+fn promptForActivity(
+    allocator: std.mem.Allocator,
+    reader: *Io.Reader,
+    writer: *Io.Writer,
+) !activity.Input {
+    var result: activity.Input = .{};
+
+    const status_text = try prompt(allocator, reader, writer, "Outcome [completed/modified/skipped/rested] (completed): ");
+    if (status_text.len != 0) result.status = try activity.parseStatus(status_text);
+
+    const distance_text = try prompt(allocator, reader, writer, "Distance in km (blank if none): ");
+    if (distance_text.len != 0) result.distance_km = try parseFloat(distance_text);
+
+    const duration_text = try prompt(allocator, reader, writer, "Duration MINUTES, MM:SS, or HH:MM:SS (blank if none): ");
+    if (duration_text.len != 0) result.duration_seconds = try activity.parseDuration(duration_text);
+
+    const heart_rate_text = try prompt(allocator, reader, writer, "Average heart rate (blank if unknown): ");
+    if (heart_rate_text.len != 0) result.average_heart_rate = try std.fmt.parseInt(u16, heart_rate_text, 10);
+
+    const rpe_text = try prompt(allocator, reader, writer, "RPE 1–10 (blank if unknown): ");
+    if (rpe_text.len != 0) result.rpe = try std.fmt.parseInt(u8, rpe_text, 10);
+
+    const pain_text = try prompt(allocator, reader, writer, "Pain or discomfort 0–10 (blank means 0): ");
+    result.pain = if (pain_text.len == 0) 0 else try std.fmt.parseInt(u8, pain_text, 10);
+    if (result.pain.? > 0) {
+        result.pain_location = try prompt(allocator, reader, writer, "Pain location (optional): ");
+    }
+
+    if (result.status == .modified or result.status == .skipped) {
+        result.deviation_reason = try prompt(allocator, reader, writer, "Reason for modifying/skipping: ");
+    }
+    result.notes = try prompt(allocator, reader, writer, "Notes (optional): ");
+    return result;
+}
+
+fn prompt(
+    allocator: std.mem.Allocator,
+    reader: *Io.Reader,
+    writer: *Io.Writer,
+    label: []const u8,
+) ![]const u8 {
+    try writer.writeAll(label);
+    try writer.flush();
+    const line = (try reader.takeDelimiter('\n')) orelse return error.EndOfInput;
+    return allocator.dupe(u8, std.mem.trim(u8, line, " \r\t"));
+}
+
+fn parseCheckInCommand(args: []const []const u8) !CheckInCommand {
+    var result: CheckInCommand = .{ .target_date = date.today() };
+    var index: usize = 0;
+    if (args.len > 0 and !std.mem.startsWith(u8, args[0], "--")) {
+        result.target_date = try date.parse(args[0]);
+        index = 1;
+    }
+    if (index == args.len) {
+        result.interactive = true;
+        return result;
+    }
+
+    while (index < args.len) {
+        const flag = args[index];
+        index += 1;
+        if (index >= args.len) return error.MissingFlagValue;
+        const value = args[index];
+        index += 1;
+        if (std.mem.eql(u8, flag, "--sleep")) {
+            result.sleep_score = try std.fmt.parseInt(u8, value, 10);
+        } else if (std.mem.eql(u8, flag, "--readiness")) {
+            result.readiness_score = try std.fmt.parseInt(u8, value, 10);
+        } else if (std.mem.eql(u8, flag, "--notes")) {
+            result.notes = value;
+        } else {
+            return error.UnknownFlag;
+        }
+    }
+    return result;
+}
+
+fn parseScheduleCommand(args: []const []const u8) !ScheduleCommand {
+    var result: ScheduleCommand = .{ .start = date.today() };
+    var index: usize = 0;
+    while (index < args.len) {
+        const flag = args[index];
+        index += 1;
+        if (index >= args.len) return error.MissingFlagValue;
+        const value = args[index];
+        index += 1;
+        if (std.mem.eql(u8, flag, "--weeks")) {
+            result.weeks = try std.fmt.parseInt(u8, value, 10);
+            if (result.weeks < 1 or result.weeks > 52) return error.InvalidWeekCount;
+        } else if (std.mem.eql(u8, flag, "--from")) {
+            result.start = try date.parse(value);
+        } else {
+            return error.UnknownFlag;
+        }
+    }
+    return result;
+}
+
+fn parseCompareCommand(args: []const []const u8) !CompareCommand {
+    var result: CompareCommand = .{ .ending = date.today() };
+    var index: usize = 0;
+    while (index < args.len) {
+        const flag = args[index];
+        index += 1;
+        if (index >= args.len) return error.MissingFlagValue;
+        const value = args[index];
+        index += 1;
+        if (std.mem.eql(u8, flag, "--weeks")) {
+            result.weeks = try std.fmt.parseInt(u8, value, 10);
+            if (result.weeks < 1 or result.weeks > 52) return error.InvalidWeekCount;
+        } else if (std.mem.eql(u8, flag, "--ending")) {
+            result.ending = try date.parse(value);
+        } else {
+            return error.UnknownFlag;
+        }
+    }
+    return result;
+}
+
+fn parseExportCommand(args: []const []const u8) !ExportCommand {
+    var result: ExportCommand = .{ .ending = date.today() };
+    var index: usize = 0;
+    while (index < args.len) {
+        const flag = args[index];
+        index += 1;
+        if (index >= args.len) return error.MissingFlagValue;
+        const value = args[index];
+        index += 1;
+        if (std.mem.eql(u8, flag, "--format")) {
+            if (std.mem.eql(u8, value, "jsonl")) {
+                result.format = .jsonl;
+            } else if (std.mem.eql(u8, value, "markdown")) {
+                result.format = .markdown;
+            } else {
+                return error.InvalidExportFormat;
+            }
+        } else if (std.mem.eql(u8, flag, "--weeks")) {
+            result.weeks = try std.fmt.parseInt(u8, value, 10);
+            if (result.weeks < 1 or result.weeks > 52) return error.InvalidWeekCount;
+        } else if (std.mem.eql(u8, flag, "--ending")) {
+            result.ending = try date.parse(value);
+        } else {
+            return error.UnknownFlag;
+        }
+    }
+    return result;
+}
+
+fn parseRevisionInput(args: []const []const u8) !schedule.RevisionInput {
+    if (args.len == 0) return error.MissingDate;
+    var result: schedule.RevisionInput = .{
+        .target_date = try date.parse(args[0]),
+        .kind = "",
+        .intensity = "User-defined",
+        .details = "",
+        .distance_min_km = null,
+        .distance_max_km = null,
+        .reason = "",
+    };
+    var index: usize = 1;
+    while (index < args.len) {
+        const flag = args[index];
+        index += 1;
+        if (index >= args.len) return error.MissingFlagValue;
+        const value = args[index];
+        index += 1;
+        if (std.mem.eql(u8, flag, "--kind")) {
+            result.kind = value;
+        } else if (std.mem.eql(u8, flag, "--intensity")) {
+            result.intensity = value;
+        } else if (std.mem.eql(u8, flag, "--details")) {
+            result.details = value;
+        } else if (std.mem.eql(u8, flag, "--min-km")) {
+            result.distance_min_km = try parseNonNegativeFloat(value);
+        } else if (std.mem.eql(u8, flag, "--max-km")) {
+            result.distance_max_km = try parseNonNegativeFloat(value);
+        } else if (std.mem.eql(u8, flag, "--reason")) {
+            result.reason = value;
+        } else {
+            return error.UnknownFlag;
+        }
+    }
+    if (result.kind.len == 0 or result.details.len == 0 or result.reason.len == 0) {
+        return error.RevisionFieldsRequired;
+    }
+    if (result.distance_min_km != null and result.distance_max_km != null and
+        result.distance_min_km.? > result.distance_max_km.?)
+    {
+        return error.InvalidDistanceRange;
+    }
+    return result;
+}
+
+fn validateRange(start: date.Date, end: date.Date) !void {
+    if (date.compare(start, end) == .gt) return error.InvalidDateRange;
+    if (date.daysBetween(start, end) > 366) return error.DateRangeTooLarge;
+}
+
+fn parseFloat(text: []const u8) !f64 {
+    const value = try std.fmt.parseFloat(f64, text);
+    if (value <= 0 or !std.math.isFinite(value)) return error.InvalidDistance;
+    return value;
+}
+
+fn parseNonNegativeFloat(text: []const u8) !f64 {
+    const value = try std.fmt.parseFloat(f64, text);
+    if (value < 0 or !std.math.isFinite(value)) return error.InvalidDistance;
+    return value;
+}
+
+fn printDistanceRange(writer: *Io.Writer, minimum: ?f64, maximum: ?f64) !void {
+    if (minimum != null and maximum != null and minimum.? == maximum.?) {
+        try writer.print("{d:.1} km", .{minimum.?});
+    } else if (minimum != null and maximum != null) {
+        try writer.print("{d:.1}–{d:.1} km", .{ minimum.?, maximum.? });
+    } else if (minimum) |value| {
+        try writer.print("at least {d:.1} km", .{value});
+    } else if (maximum) |value| {
+        try writer.print("up to {d:.1} km", .{value});
+    } else {
+        try writer.writeAll("not specified");
+    }
+}
+
+fn printUsage(writer: *Io.Writer) !void {
+    try writer.writeAll(
+        \\runningman — daily running plan and append-only training log
+        \\
+        \\Usage:
+        \\  runningman [--data PATH] init [START_MONDAY]
+        \\  runningman [--data PATH] today [DATE]
+        \\  runningman [--data PATH] schedule [--weeks N] [--from DATE]
+        \\  runningman [--data PATH] check-in [DATE] [--sleep 0-100 --readiness 0-100]
+        \\  runningman [--data PATH] log [DATE]
+        \\  runningman [--data PATH] log [DATE] --distance KM [options]
+        \\  runningman [--data PATH] history [FROM_DATE] [TO_DATE]
+        \\  runningman [--data PATH] compare [--weeks N] [--ending DATE]
+        \\  runningman [--data PATH] revise DATE --kind KIND --details TEXT --reason TEXT [options]
+        \\  runningman [--data PATH] export [--format markdown|jsonl] [--weeks N] [--ending DATE]
+        \\
+        \\Log options:
+        \\  --outcome completed|modified|skipped|rested
+        \\  --modified | --skipped | --rested
+        \\  --distance KM  --duration MINUTES|MM:SS|HH:MM:SS  --avg-hr BPM
+        \\  --rpe 1-10  --pain 0-10  --pain-location TEXT
+        \\  --reason TEXT  --notes TEXT
+        \\
+        \\Revision options:
+        \\  --intensity TEXT  --min-km KM  --max-km KM
+        \\
+        \\Default data file: runningman-data.jsonl
+        \\
+    );
+}
+
+fn friendlyError(err: anyerror) []const u8 {
+    return switch (err) {
+        error.NotInitialized => "no plan found; run `runningman init YYYY-MM-DD` with a Monday start date",
+        error.AlreadyInitialized => "the data file already contains a plan",
+        error.StartMustBeMonday => "the 12-week plan must start on a Monday",
+        error.InvalidDate => "date must be a real calendar date in YYYY-MM-DD form",
+        error.NoScheduleForDate => "no schedule applies to that date",
+        error.NoWorkoutForDate, error.WorkoutNotFound => "the active schedule has no workout for that date",
+        error.InvalidDistance => "distance must be a finite positive number",
+        error.InvalidDistanceRange => "minimum distance cannot exceed maximum distance",
+        error.InvalidHeartRate => "average heart rate must be greater than zero",
+        error.RpeOutOfRange => "RPE must be from 1 to 10",
+        error.PainOutOfRange => "pain must be from 0 to 10",
+        error.SleepScoreOutOfRange => "Oura Sleep Score must be from 0 to 100",
+        error.ReadinessScoreOutOfRange => "Oura Readiness Score must be from 0 to 100",
+        error.SleepScoreRequired => "a morning check-in requires --sleep 0-100",
+        error.ReadinessScoreRequired => "a morning check-in requires --readiness 0-100",
+        error.ModifiedReasonRequired => "a modified activity requires a reason",
+        error.InvalidStatus => "outcome must be completed, modified, skipped, or rested",
+        error.InvalidDuration => "duration must be positive whole minutes, MM:SS, or HH:MM:SS",
+        error.RevisionFieldsRequired => "a revision requires --kind, --details, and --reason",
+        error.IncompleteScheduleSnapshot => "could not create a complete 84-workout schedule snapshot",
+        error.InvalidDateRange => "the history start date is after its end date",
+        error.DateRangeTooLarge => "history is limited to 366 days at a time",
+        error.InvalidWeekCount => "--weeks must be from 1 to 52",
+        error.InvalidExportFormat => "export format must be markdown or jsonl",
+        error.InvalidDataFile => "the data file contains an invalid event",
+        error.UnknownCommand => "unknown command",
+        error.UnknownFlag => "unknown option",
+        error.MissingFlagValue => "an option is missing its value",
+        error.MissingDate => "a date is required",
+        error.MissingDataPath => "--data requires a path",
+        error.EndOfInput => "interactive input ended before logging was complete",
+        error.UnexpectedArgument => "too many arguments",
+        else => @errorName(err),
+    };
+}
