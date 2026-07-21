@@ -7,6 +7,9 @@ trap 'rm -rf "$temporary_directory"' EXIT
 
 data_file="$temporary_directory/training.jsonl"
 
+"$binary" help > "$temporary_directory/help.txt"
+grep -Fq "runningman [--data PATH] tomorrow" "$temporary_directory/help.txt"
+
 "$binary" profile validate examples/runner-profile.json > "$temporary_directory/profile.txt"
 grep -q "Runner profile is valid: example-half-marathon-runner" "$temporary_directory/profile.txt"
 grep -q "target time to be recommended" "$temporary_directory/profile.txt"

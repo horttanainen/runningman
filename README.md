@@ -78,16 +78,20 @@ workout without selecting a mode flag:
 
 ```sh
 ./zig-out/bin/runningman plan explain
+./zig-out/bin/runningman plan explain today
+./zig-out/bin/runningman plan explain tomorrow
 ./zig-out/bin/runningman plan explain 2026-07-22
 ./zig-out/bin/runningman plan explain proposed-plan.json
+./zig-out/bin/runningman plan explain proposed-plan.json today
+./zig-out/bin/runningman plan explain proposed-plan.json tomorrow
 ./zig-out/bin/runningman plan explain proposed-plan.json 2026-07-22
 ```
 
-The command recognizes a strict `YYYY-MM-DD` argument as a date and otherwise
-treats it as a proposal path. It recomputes the target assessment and explains
-phase purpose, weekly progression, workout allocation, pace derivation, rule
-summaries, evidence IDs, and explicit product assumptions. Explanation is
-read-only and never revises the schedule.
+The command recognizes `today`, `tomorrow`, or a strict `YYYY-MM-DD` argument as
+a date and otherwise treats it as a proposal path. It recomputes the target
+assessment and explains phase purpose, weekly progression, workout allocation,
+pace derivation, rule summaries, evidence IDs, and explicit product assumptions.
+Explanation is read-only and never revises the schedule.
 
 The canonical JSON Schemas include:
 
@@ -172,6 +176,8 @@ With no command, `runningman` shows today:
 
 ```sh
 ./zig-out/bin/runningman
+./zig-out/bin/runningman today
+./zig-out/bin/runningman tomorrow
 ./zig-out/bin/runningman today 2026-07-25
 ```
 

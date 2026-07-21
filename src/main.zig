@@ -136,6 +136,8 @@ fn run(
 
     if (std.mem.eql(u8, command, "today")) {
         try commandToday(writer, &storage, command_args);
+    } else if (std.mem.eql(u8, command, "tomorrow")) {
+        try commandTomorrow(writer, &storage, command_args);
     } else if (std.mem.eql(u8, command, "log")) {
         try commandLog(allocator, io, reader, writer, data_path, &storage, command_args);
     } else if (std.mem.eql(u8, command, "check-in")) {
@@ -290,6 +292,15 @@ fn commandToday(
     if (args.len > 1) return error.UnexpectedArgument;
     const target_date = if (args.len == 1) try date.parse(args[0]) else date.today();
     try printDay(writer, storage, target_date);
+}
+
+fn commandTomorrow(
+    writer: *Io.Writer,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    if (args.len != 0) return error.UnexpectedArgument;
+    try printDay(writer, storage, date.addDays(date.today(), 1));
 }
 
 fn commandLog(
@@ -515,17 +526,17 @@ fn commandPlanExplain(
     var proposal_path: ?[]const u8 = null;
     var target_date: ?date.Date = null;
     if (args.len == 1) {
-        if (looksLikeDate(args[0])) {
-            target_date = try date.parse(args[0]);
+        if (try parsePlanExplainDate(args[0])) |parsed_date| {
+            target_date = parsed_date;
         } else {
             proposal_path = args[0];
         }
     } else if (args.len == 2) {
-        if (looksLikeDate(args[0]) or !looksLikeDate(args[1])) {
-            return error.InvalidPlanExplainCommand;
-        }
+        if (try parsePlanExplainDate(args[0]) != null) return error.InvalidPlanExplainCommand;
+
         proposal_path = args[0];
-        target_date = try date.parse(args[1]);
+        target_date = (try parsePlanExplainDate(args[1])) orelse
+            return error.InvalidPlanExplainCommand;
     }
 
     if (proposal_path) |path| {
@@ -545,6 +556,17 @@ fn commandPlanExplain(
 
 fn looksLikeDate(value: []const u8) bool {
     return value.len == 10 and value[4] == '-' and value[7] == '-';
+}
+
+fn parsePlanExplainDate(value: []const u8) !?date.Date {
+    return parsePlanExplainDateFrom(value, date.today());
+}
+
+fn parsePlanExplainDateFrom(value: []const u8, current_date: date.Date) !?date.Date {
+    if (std.mem.eql(u8, value, "today")) return current_date;
+    if (std.mem.eql(u8, value, "tomorrow")) return date.addDays(current_date, 1);
+    if (!looksLikeDate(value)) return null;
+    return try date.parse(value);
 }
 
 fn commandPlanGenerate(
@@ -946,6 +968,7 @@ fn printUsage(writer: *Io.Writer) !void {
         \\Usage:
         \\  runningman [--data PATH] init [START_MONDAY]
         \\  runningman [--data PATH] today [DATE]
+        \\  runningman [--data PATH] tomorrow
         \\  runningman [--data PATH] schedule [--weeks N] [--from DATE]
         \\  runningman [--data PATH] check-in [DATE] [--sleep 0-100 --readiness 0-100]
         \\  runningman [--data PATH] log [DATE]
@@ -959,7 +982,7 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman [--data PATH] plan generate RUNNER_PROFILE.json --output PROPOSED_PLAN.json [--policy POLICY.json] [--evidence EVIDENCE_LEDGER.json]
         \\  runningman [--data PATH] plan preview REVISION.json
         \\  runningman [--data PATH] plan apply REVISION.json
-        \\  runningman [--data PATH] plan explain [DATE|REVISION.json [DATE]]
+        \\  runningman [--data PATH] plan explain [DATE|today|tomorrow|REVISION.json [DATE|today|tomorrow]]
         \\  runningman [--data PATH] review [--weeks N] [--ending DATE]
         \\  runningman [--data PATH] export [--format markdown|jsonl] [--weeks N] [--ending DATE]
         \\
@@ -1134,7 +1157,7 @@ fn friendlyError(err: anyerror) []const u8 {
         error.GeneratedTaperMissingIntensity => "generated taper does not retain a quality session",
         error.PlanFileRequired => "plan preview/apply requires exactly one revision JSON file",
         error.UnknownPlanAction => "plan action must be generate, preview, apply, or explain",
-        error.InvalidPlanExplainCommand => "plan explain accepts no arguments, DATE, REVISION.json, or REVISION.json DATE",
+        error.InvalidPlanExplainCommand => "plan explain accepts no arguments, DATE, today, tomorrow, REVISION.json, or REVISION.json DATE|today|tomorrow",
         error.PlanAlreadyPeriodized => "the latest schedule is already periodized",
         error.RevisionFileNotFound => "the revision JSON file was not found",
         error.InvalidRevisionFile => "the revision file is not valid JSON in the expected format",
@@ -1171,4 +1194,16 @@ fn friendlyError(err: anyerror) []const u8 {
         error.UnexpectedArgument => "too many arguments",
         else => @errorName(err),
     };
+}
+
+test "plan explain recognizes date selectors" {
+    const current_date: date.Date = .{ .year = 2026, .month = 7, .day = 21 };
+    const explicit_date = (try parsePlanExplainDateFrom("2026-07-21", current_date)).?;
+    try std.testing.expectEqual(date.Date{ .year = 2026, .month = 7, .day = 21 }, explicit_date);
+    try std.testing.expectEqual(current_date, (try parsePlanExplainDateFrom("today", current_date)).?);
+    try std.testing.expectEqual(
+        date.Date{ .year = 2026, .month = 7, .day = 22 },
+        (try parsePlanExplainDateFrom("tomorrow", current_date)).?,
+    );
+    try std.testing.expect((try parsePlanExplainDateFrom("proposed-plan.json", current_date)) == null);
 }
