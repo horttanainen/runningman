@@ -1,6 +1,7 @@
 const std = @import("std");
 const assessment = @import("assessment.zig");
 const date = @import("date.zig");
+const plan_provenance = @import("plan_provenance.zig");
 const plan_revision = @import("plan_revision.zig");
 const runner_profile = @import("runner_profile.zig");
 const training_policy = @import("training_policy.zig");
@@ -22,7 +23,7 @@ pub fn validate(
     revision: plan_revision.RevisionFile,
 ) !void {
     const profile_summary = try runner_profile.validate(profile);
-    if (revision.schema_version != 1) return error.UnsupportedRevisionSchema;
+    if (revision.schema_version != 2) return error.UnsupportedRevisionSchema;
     if (!std.mem.eql(u8, revision.effective_from, profile.plan_start_date.value)) {
         return error.GeneratedPlanStartMismatch;
     }
@@ -33,8 +34,21 @@ pub fn validate(
         return error.GeneratedPlanMissingDays;
     }
 
-    const proposed_assessment = revision.assessment orelse
-        return error.GeneratedPlanNeedsAssessment;
+    const provenance = revision.provenance;
+    if (provenance.schema_version != 1 or
+        !std.mem.eql(u8, provenance.generator_version, plan_provenance.generator_version) or
+        !plan_provenance.validSha256(provenance.runner_profile_sha256) or
+        !plan_provenance.validSha256(provenance.training_policy_sha256) or
+        !plan_provenance.validSha256(provenance.evidence_ledger_sha256) or
+        !std.mem.eql(u8, provenance.evidence_ledger_id, policy.evidence_ledger_id) or
+        !std.mem.eql(u8, provenance.runner_profile.profile_id, profile.profile_id) or
+        !std.mem.eql(u8, provenance.training_policy.policy_id, policy.policy_id) or
+        provenance.training_policy.policy_version != policy.policy_version)
+    {
+        return error.GeneratedPlanProvenanceMismatch;
+    }
+
+    const proposed_assessment = revision.assessment;
     if (!std.mem.eql(u8, proposed_assessment.profile_id, profile.profile_id) or
         !std.mem.eql(u8, proposed_assessment.policy_id, policy.policy_id) or
         proposed_assessment.policy_version != policy.policy_version or
@@ -47,6 +61,9 @@ pub fn validate(
     {
         return error.GeneratedAssessmentMismatch;
     }
+    if (!sameAssessment(provenance.assessment, proposed_assessment)) {
+        return error.GeneratedPlanProvenanceMismatch;
+    }
 
     const start = try date.parse(profile.plan_start_date.value);
     const race_date = try date.parse(profile.goal.race_date.value);
@@ -56,9 +73,10 @@ pub fn validate(
     var phase_stage: u8 = 0;
 
     const week_count = (revision.workouts.len + 6) / 7;
-    const proposed_weeks = revision.weeks orelse return error.GeneratedPlanNeedsWeeklySummary;
+    const proposed_weeks = revision.weeks;
     if (proposed_weeks.len != week_count) return error.GeneratedWeeklySummaryCountMismatch;
     for (proposed_weeks, 0..) |week, index| {
+        const decision = week.decision;
         const expected_start = date.addDays(start, @intCast(index * 7));
         const expected_end = date.addDays(
             start,
@@ -68,6 +86,12 @@ pub fn validate(
             date.compare(try date.parse(week.end_date), expected_end) != .eq)
         {
             return error.GeneratedWeeklySummaryDatesMismatch;
+        }
+        if (!std.mem.eql(u8, decision.periodization_rule_id, policy.periodization.rule_id) or
+            !std.mem.eql(u8, decision.volume_rule_id, policy.volume_progression.rule_id) or
+            !std.mem.eql(u8, decision.long_run_rule_id, policy.long_run.rule_id))
+        {
+            return error.GeneratedWeekDecisionMismatch;
         }
     }
     const weeks = try allocator.alloc(WeekSummary, week_count);
@@ -109,6 +133,16 @@ pub fn validate(
             return error.GeneratedWorkoutOnUnavailableDate;
         }
         const weekday: runner_profile.Weekday = @enumFromInt(date.weekday(workout_date));
+        const decision = workout.decision orelse return error.GeneratedWorkoutNeedsDecision;
+        if (decision.scheduled_weekday != weekday) {
+            return error.GeneratedWorkoutDecisionWeekdayMismatch;
+        }
+        if (!validRecipe(policy, decision.recipe_id, workout.phase)) {
+            return error.GeneratedWorkoutDecisionRecipeMismatch;
+        }
+        if (decision.rule_ids.len == 0 or !validRuleIds(policy, decision.rule_ids)) {
+            return error.GeneratedWorkoutDecisionRuleMismatch;
+        }
         if (is_running and !is_race and !is_optional and
             !containsWeekday(profile.availability.running_days.value, weekday))
         {
@@ -123,6 +157,9 @@ pub fn validate(
         }
 
         const distance_km = try workoutDistance(workout);
+        if (@abs(decision.allocated_distance_km - distance_km) > 0.01) {
+            return error.GeneratedWorkoutDecisionDistanceMismatch;
+        }
         if (is_optional) {
             weeks[week_index].optional_distance_km += distance_km;
         } else {
@@ -151,10 +188,13 @@ pub fn validate(
 
     if (race_count != 1) return error.GeneratedPlanNeedsOneRace;
     for (weeks, proposed_weeks, 0..) |week, proposed, index| {
+        const decision = proposed.decision;
         if (proposed.week != index + 1 or
             !std.mem.eql(u8, proposed.phase, week.phase) or
             @abs(proposed.target_core_distance_km - week.core_distance_km) > 0.01 or
-            @abs(proposed.long_run_distance_km - week.long_distance_km) > 0.01)
+            @abs(proposed.long_run_distance_km - week.long_distance_km) > 0.01 or
+            @abs(decision.baseline_weekly_distance_km -
+                profile.baseline.average_weekly_distance_km.value) > 0.01)
         {
             return error.GeneratedWeeklySummaryMismatch;
         }
@@ -328,4 +368,41 @@ fn isUnavailable(profile: runner_profile.RunnerProfile, date_text: []const u8) b
         if (std.mem.eql(u8, candidate, date_text)) return true;
     }
     return false;
+}
+
+fn sameAssessment(
+    left: plan_provenance.AssessmentSnapshot,
+    right: plan_provenance.AssessmentSnapshot,
+) bool {
+    return std.mem.eql(u8, left.profile_id, right.profile_id) and
+        std.mem.eql(u8, left.policy_id, right.policy_id) and
+        left.policy_version == right.policy_version and
+        std.mem.eql(u8, left.confidence, right.confidence) and
+        std.mem.eql(u8, left.feasibility, right.feasibility) and
+        left.recommended_target_seconds == right.recommended_target_seconds and
+        left.requested_target_seconds == right.requested_target_seconds and
+        left.training_pace_anchor_seconds == right.training_pace_anchor_seconds and
+        left.expected_shortfall_seconds == right.expected_shortfall_seconds;
+}
+
+fn validRecipe(
+    policy: training_policy.Policy,
+    recipe_id: []const u8,
+    phase: []const u8,
+) bool {
+    for (policy.workout_recipes) |recipe| {
+        if (!std.mem.eql(u8, recipe.recipe_id, recipe_id)) continue;
+        for (recipe.phase_ids) |phase_id| {
+            if (std.mem.eql(u8, phase_id, phase)) return true;
+        }
+        return false;
+    }
+    return false;
+}
+
+fn validRuleIds(policy: training_policy.Policy, rule_ids: []const []const u8) bool {
+    for (rule_ids) |rule_id| {
+        if (training_policy.findRule(policy, rule_id) == null) return false;
+    }
+    return true;
 }

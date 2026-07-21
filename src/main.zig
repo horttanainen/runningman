@@ -6,6 +6,7 @@ const date = @import("date.zig");
 const evidence_ledger = @import("evidence_ledger.zig");
 const model = @import("model.zig");
 const plan_generator = @import("plan_generator.zig");
+const plan_provenance = @import("plan_provenance.zig");
 const plan_revision = @import("plan_revision.zig");
 const report = @import("report.zig");
 const runner_profile = @import("runner_profile.zig");
@@ -529,11 +530,18 @@ fn commandPlanGenerate(
     const policy = try training_policy.load(allocator, io, policy_path);
     try training_policy.validate(policy, ledger);
     const result = try assessment.assess(profile, policy);
+    const source_hashes: plan_provenance.SourceHashes = .{
+        .runner_profile_sha256 = try plan_provenance.hashFile(allocator, io, profile_path),
+        .training_policy_sha256 = try plan_provenance.hashFile(allocator, io, policy_path),
+        .evidence_ledger_sha256 = try plan_provenance.hashFile(allocator, io, evidence_path),
+    };
     const revision = try plan_generator.generate(
         allocator,
         profile,
         policy,
         result,
+        ledger.ledger_id,
+        source_hashes,
         storage.max_schedule_id,
     );
     try plan_generator.save(io, destination, revision);
@@ -1022,12 +1030,12 @@ fn friendlyError(err: anyerror) []const u8 {
         error.GeneratedPlanStartMismatch => "generated plan start does not match the runner profile",
         error.GeneratedRaceDateMismatch => "generated race date does not match the runner profile",
         error.GeneratedPlanMissingDays => "generated plan must represent every calendar day",
-        error.GeneratedPlanNeedsAssessment => "generated plan must include its baseline assessment",
+        error.GeneratedPlanProvenanceMismatch => "generated plan provenance does not match its planner inputs",
         error.GeneratedAssessmentMismatch => "generated assessment does not match the planner inputs",
-        error.GeneratedPlanNeedsWeeklySummary => "generated plan must include its weekly macrocycle summary",
         error.GeneratedWeeklySummaryCountMismatch => "generated weekly summary count does not match its daily schedule",
         error.GeneratedWeeklySummaryDatesMismatch => "generated weekly summary dates do not match its daily schedule",
         error.GeneratedWeeklySummaryMismatch => "generated weekly summary does not match its daily schedule",
+        error.GeneratedWeekDecisionMismatch => "a generated weekly decision does not match the selected policy",
         error.GeneratedPlanDatesNotConsecutive => "generated plan dates are not consecutive",
         error.GeneratedWeekHasMultiplePhases => "a generated week contains more than one phase",
         error.GeneratedPhaseOrderInvalid => "generated phases are out of order",
@@ -1039,6 +1047,13 @@ fn friendlyError(err: anyerror) []const u8 {
         error.GeneratedOptionalRunWithoutOptionalDay => "generated plan has an optional run without an optional recovery day",
         error.GeneratedOptionalRunOnWrongDay => "generated optional run is on the wrong weekday",
         error.GeneratedWorkoutNeedsDistance => "generated running workouts must have explicit distance segments",
+        error.GeneratedWorkoutNeedsDecision => "every generated workout must include its recipe and allocation decision",
+        error.GeneratedWorkoutDecisionWeekdayMismatch => "a generated workout decision records the wrong weekday",
+        error.GeneratedWorkoutDecisionRecipeMismatch => "a generated workout recipe is not valid for its phase",
+        error.GeneratedWorkoutDecisionRuleMismatch => "a generated workout decision refers to missing policy rules",
+        error.GeneratedWorkoutDecisionDistanceMismatch => "a generated workout decision records the wrong distance",
+        error.UnknownGeneratedWorkoutKind => "the generator produced an unknown workout kind",
+        error.GeneratedWorkoutRecipeNotFound => "the generator selected a workout recipe missing from the policy",
         error.GeneratedDemandingSessionsTooClose => "generated demanding sessions do not have enough easy or rest days between them",
         error.GeneratedTooManyQualitySessions => "generated week exceeds the policy's quality-session limit",
         error.GeneratedIntensityDistributionInvalid => "generated low-intensity share is outside policy bounds",
@@ -1062,10 +1077,11 @@ fn friendlyError(err: anyerror) []const u8 {
         error.PlanAlreadyPeriodized => "the latest schedule is already periodized",
         error.RevisionFileNotFound => "the revision JSON file was not found",
         error.InvalidRevisionFile => "the revision file is not valid JSON in the expected format",
-        error.UnsupportedRevisionSchema => "the revision file schema_version must be 1",
+        error.UnsupportedRevisionSchema => "the revision file schema_version must be 2",
         error.StaleRevision => "the revision targets an older schedule; export a fresh review first",
         error.RevisionReasonRequired => "the revision needs a non-empty reason",
         error.EmptyRevision => "the revision contains no workouts",
+        error.RevisionWorkoutDecisionRequired => "every revised workout must include its recipe and allocation decision",
         error.RevisionBeforePlanStart => "the revision cannot begin before the plan",
         error.RevisionDatesNotConsecutive => "the revision must contain one entry for every consecutive day",
         error.RevisionRaceDateRequired => "the schedule needs a race date",

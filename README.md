@@ -66,12 +66,19 @@ structured daily workouts before running an independent policy validator. The
 proposal is never applied automatically. With no supported pace anchor, the
 plan retains effort guidance without inventing pace or duration precision.
 
+Generated proposals also embed deterministic provenance: the complete runner
+profile and policy snapshots, SHA-256 identities for the profile, policy, and
+evidence ledger, the assessment used for pacing, and structured decisions for
+every week and workout. Applying a proposal preserves the same provenance in
+the append-only schedule revision. No generation timestamp is included, so
+identical source files still produce byte-identical proposals.
+
 The canonical JSON Schemas include:
 
 - [`schemas/runner-profile-v1.schema.json`](schemas/runner-profile-v1.schema.json)
 - [`schemas/evidence-ledger-v1.schema.json`](schemas/evidence-ledger-v1.schema.json)
 - [`schemas/training-policy-v1.schema.json`](schemas/training-policy-v1.schema.json)
-- [`schemas/proposed-plan-v1.schema.json`](schemas/proposed-plan-v1.schema.json)
+- [`schemas/proposed-plan-v2.schema.json`](schemas/proposed-plan-v2.schema.json)
 
 Runner inputs are represented as a `value` plus one of these sources:
 
@@ -355,36 +362,14 @@ After inspecting the full preview, apply it:
 ./zig-out/bin/runningman plan apply revised-program.json
 ```
 
-The file has this shape:
+Revision files use only
+[`proposed-plan-v2`](schemas/proposed-plan-v2.schema.json). The complete document
+must preserve its planner provenance, assessment, macrocycle weeks, and the
+structured decision attached to every week and workout. Schema version 1
+proposal files are rejected.
 
-```json
-{
-  "schema_version": 1,
-  "base_schedule_id": 1,
-  "effective_from": "2026-08-03",
-  "reason": "Adjusted from the weekly evidence.",
-  "workouts": [
-    {
-      "date": "2026-08-03",
-      "phase": "recovery",
-      "kind": "easy",
-      "intensity": "Zone 2, conversational",
-      "details": "6 km easy.",
-      "segments": [
-        {
-          "kind": "distance",
-          "label": "Run",
-          "distance_km": 6,
-          "pace_fast_seconds_per_km": 375,
-          "pace_slow_seconds_per_km": 420
-        }
-      ]
-    }
-  ]
-}
-```
-
-The real file must contain one workout or rest entry for every consecutive date
+The easiest starting point for a revised program is a newly generated complete
+proposal. It must contain one workout or rest entry for every consecutive date
 from `effective_from` through the schedule's race date. A segment can prescribe
 `distance_km` with a fast/slow pace range, or `duration_seconds`; repetitions
 and recovery are represented with `repetitions` and `recovery_seconds`.

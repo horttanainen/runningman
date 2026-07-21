@@ -1,17 +1,17 @@
 # Runningman product and planning roadmap
 
 Status: in progress
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 This document records the intended technical direction for `runningman` and the
 detailed design for Phase 1. The phase is being implemented through explicit
 review gates.
 
-Implementation status: Phase 1 Increments 1–3 are implemented for review. They
-add versioned runner-profile, evidence-ledger, training-policy, and proposed-plan
-documents; deterministic baseline assessment and schedule generation; an
-independent plan validator; preview/apply compatibility; explanations; and
-boundary tests.
+Implementation status: Phase 1 Increments 1–3 and Increment 4.1 are implemented
+for review. They add versioned runner-profile, evidence-ledger, training-policy,
+and proposed-plan documents; deterministic baseline assessment and schedule
+generation; an independent plan validator; preview/apply compatibility; and
+persisted input, policy, week, and workout provenance.
 
 ## Direction
 
@@ -497,7 +497,7 @@ Review gate: inspect several complete schedules, including boundary cases.
 
 ### Increment 4: provenance, explanation, and evaluation
 
-- Preserve policy and input provenance.
+- [x] Preserve policy and input provenance (Increment 4.1).
 - Add `plan explain`.
 - Expand review export.
 - Complete the synthetic-profile and invariant-test suite.

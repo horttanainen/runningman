@@ -1,3 +1,5 @@
+const plan_provenance = @import("plan_provenance.zig");
+
 pub const EventType = enum {
     schedule,
     workout,
@@ -26,6 +28,7 @@ pub const Schedule = struct {
     pace_profile: []const u8,
     race_date: []const u8,
     source: []const u8,
+    plan_provenance: ?plan_provenance.PlanProvenance = null,
     recorded_at: i64,
 };
 
@@ -54,6 +57,7 @@ pub const Workout = struct {
     distance_max_km: ?f64,
     details: []const u8,
     segments: []const Segment,
+    decision: ?plan_provenance.WorkoutDecision = null,
     recorded_at: i64,
 };
 
@@ -103,6 +107,7 @@ pub const Event = struct {
     pace_profile: ?[]const u8 = null,
     race_date: ?[]const u8 = null,
     source: ?[]const u8 = null,
+    plan_provenance: ?plan_provenance.PlanProvenance = null,
 
     schedule_id: ?u64 = null,
     workout_id: ?u64 = null,
@@ -116,6 +121,7 @@ pub const Event = struct {
     distance_max_km: ?f64 = null,
     details: ?[]const u8 = null,
     segments: ?[]const Segment = null,
+    decision: ?plan_provenance.WorkoutDecision = null,
 
     status: ?ActivityStatus = null,
     supersedes_activity_id: ?u64 = null,
@@ -151,6 +157,7 @@ pub fn scheduleEvent(value: Schedule) Event {
         .pace_profile = value.pace_profile,
         .race_date = value.race_date,
         .source = value.source,
+        .plan_provenance = value.plan_provenance,
         .recorded_at = value.recorded_at,
     };
 }
@@ -170,6 +177,7 @@ pub fn workoutEvent(value: Workout) Event {
         .distance_max_km = value.distance_max_km,
         .details = value.details,
         .segments = value.segments,
+        .decision = value.decision,
         .recorded_at = value.recorded_at,
     };
 }

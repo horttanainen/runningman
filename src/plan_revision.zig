@@ -1,13 +1,14 @@
 const std = @import("std");
 const date = @import("date.zig");
 const model = @import("model.zig");
+const plan_provenance = @import("plan_provenance.zig");
 const store = @import("store.zig");
 const workout = @import("workout.zig");
 
 const Io = std.Io;
 
 pub const RevisionFile = struct {
-    schema_version: u8 = 1,
+    schema_version: u8,
     base_schedule_id: u64,
     effective_from: []const u8,
     reason: []const u8,
@@ -17,22 +18,13 @@ pub const RevisionFile = struct {
     intensity_guidance: []const u8 = "",
     pace_profile: []const u8 = "",
     race_date: []const u8 = "",
-    assessment: ?ProposedAssessment = null,
-    weeks: ?[]const ProposedWeek = null,
+    provenance: plan_provenance.PlanProvenance,
+    assessment: ProposedAssessment,
+    weeks: []const ProposedWeek,
     workouts: []const ProposedWorkout,
 };
 
-pub const ProposedAssessment = struct {
-    profile_id: []const u8,
-    policy_id: []const u8,
-    policy_version: u16,
-    confidence: []const u8,
-    feasibility: []const u8,
-    recommended_target_seconds: ?u32 = null,
-    requested_target_seconds: ?u32 = null,
-    training_pace_anchor_seconds: ?u32 = null,
-    expected_shortfall_seconds: ?u32 = null,
-};
+pub const ProposedAssessment = plan_provenance.AssessmentSnapshot;
 
 pub const ProposedWeek = struct {
     week: u8,
@@ -41,6 +33,7 @@ pub const ProposedWeek = struct {
     phase: []const u8,
     target_core_distance_km: f64,
     long_run_distance_km: f64,
+    decision: plan_provenance.WeekDecision,
 };
 
 pub const ProposedWorkout = struct {
@@ -52,6 +45,7 @@ pub const ProposedWorkout = struct {
     distance_min_km: ?f64 = null,
     distance_max_km: ?f64 = null,
     segments: []const model.Segment,
+    decision: ?plan_provenance.WorkoutDecision = null,
 };
 
 const DistanceRange = struct {
@@ -82,7 +76,7 @@ pub fn load(
 }
 
 pub fn validate(storage: *const store.Store, revision: RevisionFile) !void {
-    if (revision.schema_version != 1) return error.UnsupportedRevisionSchema;
+    if (revision.schema_version != 2) return error.UnsupportedRevisionSchema;
     if (revision.base_schedule_id != storage.max_schedule_id) return error.StaleRevision;
     if (revision.reason.len == 0) return error.RevisionReasonRequired;
     if (revision.workouts.len == 0) return error.EmptyRevision;
@@ -101,6 +95,7 @@ pub fn validate(storage: *const store.Store, revision: RevisionFile) !void {
         if (date.compare(proposed_date, expected_date) != .eq) {
             return error.RevisionDatesNotConsecutive;
         }
+        if (proposed.decision == null) return error.RevisionWorkoutDecisionRequired;
         try validateWorkout(proposed);
         expected_date = date.addDays(expected_date, 1);
     }
@@ -149,6 +144,7 @@ pub fn createEvents(
         .pace_profile = valueOrFallback(revision.pace_profile, parent.pace_profile),
         .race_date = valueOrFallback(revision.race_date, parent.race_date),
         .source = "Complete remaining-program revision imported from a reviewed JSON file.",
+        .plan_provenance = revision.provenance,
         .recorded_at = recorded_at,
     };
     try events.append(allocator, model.scheduleEvent(schedule_value));
@@ -185,6 +181,7 @@ pub fn createEvents(
             .distance_max_km = range.maximum_km,
             .details = proposed.details,
             .segments = proposed.segments,
+            .decision = proposed.decision,
             .recorded_at = recorded_at,
         };
         try events.append(allocator, model.workoutEvent(value));
@@ -217,46 +214,74 @@ pub fn printPreview(
         },
     );
 
-    if (revision.assessment) |result| {
+    const provenance = revision.provenance;
+    try writer.print(
+        "Planner provenance\n" ++
+            "  Generator: {s}\n" ++
+            "  Runner profile: {s} ({s})\n" ++
+            "  Training policy: {s} v{d} ({s})\n" ++
+            "  Evidence ledger: {s} ({s})\n" ++
+            "  Complete profile and policy snapshots are embedded in this proposal.\n\n",
+        .{
+            provenance.generator_version,
+            provenance.runner_profile.profile_id,
+            provenance.runner_profile_sha256,
+            provenance.training_policy.policy_id,
+            provenance.training_policy.policy_version,
+            provenance.training_policy_sha256,
+            provenance.evidence_ledger_id,
+            provenance.evidence_ledger_sha256,
+        },
+    );
+
+    const result = revision.assessment;
+    try writer.print(
+        "Assessment: {s}; {s} v{d}; {s} confidence; {s}\n",
+        .{
+            result.profile_id,
+            result.policy_id,
+            result.policy_version,
+            result.confidence,
+            result.feasibility,
+        },
+    );
+    if (result.training_pace_anchor_seconds) |target| {
+        try writer.writeAll("Training pace anchor: ");
+        try printDuration(writer, target);
+        try writer.writeByte('\n');
+    } else {
+        try writer.writeAll("Training pace anchor: none; effort guidance is used\n");
+    }
+    try writer.writeByte('\n');
+
+    try writer.writeAll("Macrocycle\n");
+    for (revision.weeks) |week| {
         try writer.print(
-            "Assessment: {s}; {s} v{d}; {s} confidence; {s}\n",
+            "  Week {d} ({s}–{s}): {s}, {d:.1} km core",
             .{
-                result.profile_id,
-                result.policy_id,
-                result.policy_version,
-                result.confidence,
-                result.feasibility,
+                week.week,
+                week.start_date,
+                week.end_date,
+                week.phase,
+                week.target_core_distance_km,
             },
         );
-        if (result.training_pace_anchor_seconds) |target| {
-            try writer.writeAll("Training pace anchor: ");
-            try printDuration(writer, target);
-            try writer.writeByte('\n');
-        } else {
-            try writer.writeAll("Training pace anchor: none; effort guidance is used\n");
+        if (week.long_run_distance_km > 0) {
+            try writer.print(", {d:.1} km long run", .{week.long_run_distance_km});
         }
         try writer.writeByte('\n');
+        const decision = week.decision;
+        try writer.print(
+            "    Basis: {s}; rules {s}, {s}, {s}\n",
+            .{
+                @tagName(decision.volume_method),
+                decision.periodization_rule_id,
+                decision.volume_rule_id,
+                decision.long_run_rule_id,
+            },
+        );
     }
-    if (revision.weeks) |weeks| {
-        try writer.writeAll("Macrocycle\n");
-        for (weeks) |week| {
-            try writer.print(
-                "  Week {d} ({s}–{s}): {s}, {d:.1} km core",
-                .{
-                    week.week,
-                    week.start_date,
-                    week.end_date,
-                    week.phase,
-                    week.target_core_distance_km,
-                },
-            );
-            if (week.long_run_distance_km > 0) {
-                try writer.print(", {d:.1} km long run", .{week.long_run_distance_km});
-            }
-            try writer.writeByte('\n');
-        }
-        try writer.writeByte('\n');
-    }
+    try writer.writeByte('\n');
 
     var previous_week: ?u8 = null;
     const parent = storage.schedules.get(revision.base_schedule_id).?;
@@ -299,6 +324,20 @@ pub fn printPreview(
             .recorded_at = 0,
         };
         try workout.printDetails(writer, preview_workout, "    ");
+        const decision = proposed.decision.?;
+        try writer.print(
+            "    Basis: recipe {s}; distance {s}; pace {s}; rules ",
+            .{
+                decision.recipe_id,
+                @tagName(decision.distance_method),
+                @tagName(decision.pace_method),
+            },
+        );
+        for (decision.rule_ids, 0..) |rule_id, index| {
+            if (index != 0) try writer.writeAll(", ");
+            try writer.writeAll(rule_id);
+        }
+        try writer.writeByte('\n');
     }
     try writer.writeAll("\nNo data was changed. Use `runningman plan apply FILE` after reviewing this preview.\n");
 }

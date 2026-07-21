@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/horttanainen/runningman/schemas/proposed-plan-v2.schema.json",
+  "title": "Runningman proposed plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "base_schedule_id",
+    "effective_from",
+    "reason",
+    "name",
+    "goal",
+    "availability",
+    "intensity_guidance",
+    "pace_profile",
+    "race_date",
+    "provenance",
+    "assessment",
+    "weeks",
+    "workouts"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "base_schedule_id": { "type": "integer", "minimum": 1 },
+    "effective_from": { "$ref": "#/$defs/date" },
+    "reason": { "$ref": "#/$defs/non_empty_string" },
+    "name": { "type": "string" },
+    "goal": { "type": "string" },
+    "availability": { "type": "string" },
+    "intensity_guidance": { "type": "string" },
+    "pace_profile": { "type": "string" },
+    "race_date": { "$ref": "#/$defs/date" },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "assessment": { "$ref": "#/$defs/assessment" },
+    "weeks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/week" }
+    },
+    "workouts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/workout" }
+    }
+  },
+  "$defs": {
+    "non_empty_string": { "type": "string", "minLength": 1 },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "weekday": {
+      "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    },
+    "source": {
+      "enum": ["measured", "user_entered", "derived", "defaulted"]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "generator_version",
+        "runner_profile_sha256",
+        "training_policy_sha256",
+        "evidence_ledger_id",
+        "evidence_ledger_sha256",
+        "runner_profile",
+        "training_policy",
+        "assessment"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "generator_version": { "const": "runningman-phase-1-v1" },
+        "runner_profile_sha256": { "$ref": "#/$defs/sha256" },
+        "training_policy_sha256": { "$ref": "#/$defs/sha256" },
+        "evidence_ledger_id": { "$ref": "#/$defs/non_empty_string" },
+        "evidence_ledger_sha256": { "$ref": "#/$defs/sha256" },
+        "runner_profile": { "$ref": "runner-profile-v1.schema.json" },
+        "training_policy": { "$ref": "training-policy-v1.schema.json" },
+        "assessment": { "$ref": "#/$defs/assessment" }
+      }
+    },
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "policy_id", "policy_version", "confidence", "feasibility"],
+      "properties": {
+        "profile_id": { "$ref": "#/$defs/non_empty_string" },
+        "policy_id": { "$ref": "#/$defs/non_empty_string" },
+        "policy_version": { "type": "integer", "minimum": 1 },
+        "confidence": { "enum": ["unavailable", "low", "moderate", "high"] },
+        "feasibility": { "enum": ["completion", "recommended", "supported", "aspirational", "infeasible"] },
+        "recommended_target_seconds": { "type": "integer", "minimum": 1 },
+        "requested_target_seconds": { "type": "integer", "minimum": 1 },
+        "training_pace_anchor_seconds": { "type": "integer", "minimum": 1 },
+        "expected_shortfall_seconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "week": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["week", "start_date", "end_date", "phase", "target_core_distance_km", "long_run_distance_km", "decision"],
+      "properties": {
+        "week": { "type": "integer", "minimum": 1, "maximum": 24 },
+        "start_date": { "$ref": "#/$defs/date" },
+        "end_date": { "$ref": "#/$defs/date" },
+        "phase": {
+          "enum": ["foundation", "build", "recovery", "race_specific", "taper", "race"]
+        },
+        "target_core_distance_km": { "type": "number", "minimum": 0 },
+        "long_run_distance_km": { "type": "number", "minimum": 0 },
+        "decision": { "$ref": "#/$defs/week_decision" }
+      }
+    },
+    "week_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "periodization_rule_id",
+        "volume_rule_id",
+        "long_run_rule_id",
+        "baseline_weekly_distance_km",
+        "baseline_weekly_distance_source",
+        "volume_method",
+        "peak_volume_limit_km",
+        "baseline_longest_run_km",
+        "baseline_longest_run_source",
+        "long_run_weekly_share_limit_km",
+        "long_run_progression_limit_km"
+      ],
+      "properties": {
+        "periodization_rule_id": { "$ref": "#/$defs/non_empty_string" },
+        "volume_rule_id": { "$ref": "#/$defs/non_empty_string" },
+        "long_run_rule_id": { "$ref": "#/$defs/non_empty_string" },
+        "recovery_rule_id": { "$ref": "#/$defs/non_empty_string" },
+        "taper_rule_id": { "$ref": "#/$defs/non_empty_string" },
+        "baseline_weekly_distance_km": { "type": "number", "minimum": 0 },
+        "baseline_weekly_distance_source": { "$ref": "#/$defs/source" },
+        "volume_method": {
+          "enum": ["baseline", "build_progression", "recovery_reduction", "race_specific_progression", "taper_reduction", "race_week"]
+        },
+        "previous_progression_distance_km": { "type": "number", "minimum": 0 },
+        "applied_volume_fraction": { "type": "number", "minimum": 0 },
+        "peak_volume_limit_km": { "type": "number", "minimum": 0 },
+        "baseline_longest_run_km": { "type": "number", "minimum": 0 },
+        "baseline_longest_run_source": { "$ref": "#/$defs/source" },
+        "previous_long_run_distance_km": { "type": "number", "minimum": 0 },
+        "long_run_weekly_share_limit_km": { "type": "number", "minimum": 0 },
+        "long_run_progression_limit_km": { "type": "number", "minimum": 0 }
+      }
+    },
+    "workout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date", "phase", "kind", "intensity", "details", "segments", "decision"],
+      "properties": {
+        "date": { "$ref": "#/$defs/date" },
+        "phase": {
+          "enum": ["foundation", "build", "recovery", "race_specific", "taper", "race"]
+        },
+        "kind": { "$ref": "#/$defs/non_empty_string" },
+        "intensity": { "$ref": "#/$defs/non_empty_string" },
+        "details": { "$ref": "#/$defs/non_empty_string" },
+        "distance_min_km": { "type": "number", "minimum": 0 },
+        "distance_max_km": { "type": "number", "minimum": 0 },
+        "segments": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/segment" }
+        },
+        "decision": { "$ref": "#/$defs/workout_decision" }
+      }
+    },
+    "workout_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recipe_id",
+        "rule_ids",
+        "allocation_role",
+        "distance_method",
+        "pace_method",
+        "week_target_core_distance_km",
+        "allocated_distance_km",
+        "scheduled_weekday"
+      ],
+      "properties": {
+        "recipe_id": { "$ref": "#/$defs/non_empty_string" },
+        "rule_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/non_empty_string" }
+        },
+        "allocation_role": {
+          "enum": ["rest", "easy", "optional_recovery", "quality", "long_run", "race"]
+        },
+        "distance_method": {
+          "enum": ["none", "weekly_remainder", "optional_weekly_fraction", "quality_weekly_fraction", "weekly_long_run", "race_distance"]
+        },
+        "pace_method": {
+          "enum": ["none", "effort_only", "easy_anchor_offset", "quality_anchor_offset", "race_anchor"]
+        },
+        "week_target_core_distance_km": { "type": "number", "minimum": 0 },
+        "allocated_distance_km": { "type": "number", "minimum": 0 },
+        "training_pace_anchor_seconds": { "type": "integer", "minimum": 1 },
+        "scheduled_weekday": { "$ref": "#/$defs/weekday" },
+        "preferred_weekday": { "$ref": "#/$defs/weekday" },
+        "preference_honored": { "type": "boolean" }
+      }
+    },
+    "segment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "label"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/non_empty_string" },
+        "label": { "$ref": "#/$defs/non_empty_string" },
+        "repetitions": { "type": "integer", "minimum": 1, "maximum": 255 },
+        "distance_km": { "type": "number", "exclusiveMinimum": 0 },
+        "duration_seconds": { "type": "integer", "minimum": 1 },
+        "pace_fast_seconds_per_km": { "type": "integer", "minimum": 1 },
+        "pace_slow_seconds_per_km": { "type": "integer", "minimum": 1 },
+        "recovery_seconds": { "type": "integer", "minimum": 1 },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

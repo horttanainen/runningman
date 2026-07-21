@@ -162,6 +162,7 @@ fn applyEvent(storage: *Store, allocator: std.mem.Allocator, event: model.Event)
                 .pace_profile = event.pace_profile orelse "",
                 .race_date = event.race_date orelse "",
                 .source = event.source orelse "",
+                .plan_provenance = event.plan_provenance,
                 .recorded_at = event.recorded_at,
             };
             try storage.schedules.put(allocator, value.id, value);
@@ -181,6 +182,7 @@ fn applyEvent(storage: *Store, allocator: std.mem.Allocator, event: model.Event)
                 .distance_max_km = event.distance_max_km,
                 .details = event.details orelse return error.InvalidDataFile,
                 .segments = event.segments orelse &.{},
+                .decision = event.decision,
                 .recorded_at = event.recorded_at,
             };
             const parsed_date = date.parse(value.date) catch return error.InvalidDataFile;

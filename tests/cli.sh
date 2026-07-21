@@ -20,7 +20,7 @@ test ! -e "$data_file"
 
 "$binary" policy validate policies/half-marathon-v1.json > "$temporary_directory/policy.txt"
 grep -q "Training policy is valid: half-marathon-v1 version 1" "$temporary_directory/policy.txt"
-grep -q "Rules: 13; phases: 6; workout recipes: 9" "$temporary_directory/policy.txt"
+grep -q "Rules: 13; phases: 6; workout recipes: 11" "$temporary_directory/policy.txt"
 test ! -e "$data_file"
 
 "$binary" plan assess examples/runner-profile.json > "$temporary_directory/assessment.txt"
@@ -48,8 +48,18 @@ if grep -q -- "--data DATA" "$temporary_directory/generate.txt"; then
     exit 1
 fi
 grep -q '"phase": "recovery"' "$generated_plan"
+grep -q '"schema_version": 2' "$generated_plan"
 grep -q '"phase": "race_specific"' "$generated_plan"
 grep -q '"phase": "taper"' "$generated_plan"
+grep -q '"generator_version": "runningman-phase-1-v1"' "$generated_plan"
+grep -Eq '"runner_profile_sha256": "[0-9a-f]{64}"' "$generated_plan"
+grep -Eq '"training_policy_sha256": "[0-9a-f]{64}"' "$generated_plan"
+grep -Eq '"evidence_ledger_sha256": "[0-9a-f]{64}"' "$generated_plan"
+grep -q '"profile_id": "example-half-marathon-runner"' "$generated_plan"
+grep -q '"volume_method": "build_progression"' "$generated_plan"
+grep -q '"recipe_id": "aerobic-intervals"' "$generated_plan"
+grep -q '"recipe_id": "continuous-threshold"' "$generated_plan"
+grep -q '"recipe_id": "race-week-sharpening"' "$generated_plan"
 "$binary" --data "$generated_data_file" plan generate examples/runner-profile.json \
     --output "$generated_plan_again" >/dev/null
 cmp "$generated_plan" "$generated_plan_again"
@@ -64,12 +74,32 @@ if grep -q "Controlled aerobic intervals: 3.0 km" "$temporary_directory/generate
     exit 1
 fi
 grep -q "Assessment: example-half-marathon-runner; half-marathon-v1 v1" "$temporary_directory/generated-preview.txt"
+grep -q "Planner provenance" "$temporary_directory/generated-preview.txt"
+grep -q "Generator: runningman-phase-1-v1" "$temporary_directory/generated-preview.txt"
+grep -q "Complete profile and policy snapshots are embedded" "$temporary_directory/generated-preview.txt"
+grep -q "Basis: build_progression; rules PER-01, VOL-01, LONG-01" "$temporary_directory/generated-preview.txt"
+grep -q "Basis: recipe aerobic-intervals; distance quality_weekly_fraction" "$temporary_directory/generated-preview.txt"
 grep -q "Macrocycle" "$temporary_directory/generated-preview.txt"
 grep -q "Week 13 .*race, 33.1 km core" "$temporary_directory/generated-preview.txt"
 grep -q "No data was changed" "$temporary_directory/generated-preview.txt"
+legacy_plan="$temporary_directory/legacy-plan.json"
+sed 's/"schema_version": 2/"schema_version": 1/' "$generated_plan" > "$legacy_plan"
+if "$binary" --data "$generated_data_file" plan preview "$legacy_plan" \
+    > /dev/null 2> "$temporary_directory/legacy-plan-error.txt"
+then
+    echo "expected proposed-plan schema version 1 to be rejected" >&2
+    exit 1
+fi
+grep -q "revision file schema_version must be 2" "$temporary_directory/legacy-plan-error.txt"
 "$binary" --data "$generated_data_file" plan apply "$generated_plan" \
     > "$temporary_directory/generated-apply.txt"
 grep -q "Applied schedule #2" "$temporary_directory/generated-apply.txt"
+grep -q '"plan_provenance":{' "$generated_data_file"
+grep -q '"generator_version":"runningman-phase-1-v1"' "$generated_data_file"
+grep -q '"decision":{"recipe_id":"aerobic-intervals"' "$generated_data_file"
+"$binary" --data "$generated_data_file" today 2026-07-21 \
+    > "$temporary_directory/generated-reload.txt"
+grep -q "Schedule #2" "$temporary_directory/generated-reload.txt"
 
 for fixture in \
     tests/fixtures/runner-profile-8-week-3-day.json \
@@ -83,8 +113,8 @@ do
         --output "$fixture_plan" >/dev/null
     "$binary" --data "$fixture_data" plan preview "$fixture_plan" >/dev/null
 done
-test "$(grep -c '"date"' "$temporary_directory/runner-profile-8-week-3-day-plan.json")" = 56
-test "$(grep -c '"date"' "$temporary_directory/runner-profile-24-week-6-day-plan.json")" = 168
+test "$(sed -n '/"workouts": \[/,$p' "$temporary_directory/runner-profile-8-week-3-day-plan.json" | grep -c '"date"')" = 56
+test "$(sed -n '/"workouts": \[/,$p' "$temporary_directory/runner-profile-24-week-6-day-plan.json" | grep -c '"date"')" = 168
 
 "$binary" --data "$data_file" today 2026-07-20 > "$temporary_directory/today.txt"
 grep -q "Core easy aerobic run" "$temporary_directory/today.txt"
@@ -133,58 +163,11 @@ grep -q "supersedes activity" "$temporary_directory/correction.txt"
     --rpe 5 \
     --pain 0 > /dev/null
 
-revision_file="$temporary_directory/revision.json"
-cat > "$revision_file" <<'JSON'
-{
-  "schema_version": 1,
-  "base_schedule_id": 1,
-  "effective_from": "2026-10-12",
-  "reason": "Reviewed taper after twelve weeks of training evidence.",
-  "name": "Reviewed race week",
-  "workouts": [
-    {
-      "date": "2026-10-12", "phase": "race", "kind": "easy",
-      "intensity": "Very easy", "details": "Reviewed short easy run.",
-      "segments": [{"kind":"distance","label":"Run","distance_km":4,"pace_fast_seconds_per_km":395,"pace_slow_seconds_per_km":440}]
-    },
-    {
-      "date": "2026-10-13", "phase": "race", "kind": "strides",
-      "intensity": "Relaxed and quick", "details": "Four relaxed strides.",
-      "segments": [{"kind":"repeat","label":"Strides","repetitions":4,"duration_seconds":20,"recovery_seconds":60}]
-    },
-    {
-      "date": "2026-10-14", "phase": "race", "kind": "rest",
-      "intensity": "Rest", "details": "Full rest.",
-      "segments": [{"kind":"rest","label":"Rest","notes":"Full rest."}]
-    },
-    {
-      "date": "2026-10-15", "phase": "race", "kind": "easy",
-      "intensity": "Very easy", "details": "Short relaxed run.",
-      "segments": [{"kind":"distance","label":"Run","distance_km":3,"pace_fast_seconds_per_km":395,"pace_slow_seconds_per_km":440}]
-    },
-    {
-      "date": "2026-10-16", "phase": "race", "kind": "rest",
-      "intensity": "Rest", "details": "Full rest.",
-      "segments": [{"kind":"rest","label":"Rest","notes":"Full rest."}]
-    },
-    {
-      "date": "2026-10-17", "phase": "race", "kind": "shakeout",
-      "intensity": "Very easy", "details": "Optional short shakeout.",
-      "distance_min_km": 0, "distance_max_km": 2,
-      "segments": [{"kind":"distance","label":"Run","distance_km":2,"pace_fast_seconds_per_km":395,"pace_slow_seconds_per_km":440}]
-    },
-    {
-      "date": "2026-10-18", "phase": "race", "kind": "race-reviewed",
-      "intensity": "Target approximately 5:41/km", "details": "Reviewed half marathon race plan.",
-      "segments": [{"kind":"distance","label":"Race","distance_km":21.0975,"pace_fast_seconds_per_km":338,"pace_slow_seconds_per_km":348}]
-    }
-  ]
-}
-JSON
+revision_file="$generated_plan"
 
 "$binary" --data "$data_file" plan preview "$revision_file" > "$temporary_directory/preview.txt"
 grep -q "No data was changed" "$temporary_directory/preview.txt"
-grep -q "race-reviewed.*changed" "$temporary_directory/preview.txt"
+grep -q "quality.*changed" "$temporary_directory/preview.txt"
 
 "$binary" --data "$data_file" plan apply "$revision_file" > "$temporary_directory/revision.txt"
 grep -q "Applied schedule #2" "$temporary_directory/revision.txt"
@@ -194,7 +177,7 @@ if "$binary" --data "$data_file" plan preview "$revision_file" >/dev/null 2>&1; 
 fi
 
 "$binary" --data "$data_file" today 2026-10-18 > "$temporary_directory/revised-day.txt"
-grep -q "Reviewed half marathon race plan" "$temporary_directory/revised-day.txt"
+grep -q "Half marathon. Start controlled" "$temporary_directory/revised-day.txt"
 grep -q "Schedule #2" "$temporary_directory/revised-day.txt"
 
 "$binary" --data "$data_file" log 2026-08-01 \
@@ -234,8 +217,10 @@ grep -q "## Training context" "$temporary_directory/check-in.md"
 grep -q "## Signals for review" "$temporary_directory/check-in.md"
 grep -q "## Complete remaining program" "$temporary_directory/check-in.md"
 grep -q "## Whole-program revision contract" "$temporary_directory/check-in.md"
-grep -q "2026-10-18 Sunday — race-reviewed" "$temporary_directory/check-in.md"
-grep -Eq "known upcoming at period end|recorded after this period" "$temporary_directory/check-in.md"
+grep -q "2026-10-18 Sunday — race" "$temporary_directory/check-in.md"
+grep -q 'It must use `schema_version: 2`' "$temporary_directory/check-in.md"
+grep -Eq "active by period end|known upcoming at period end|recorded after this period" \
+    "$temporary_directory/check-in.md"
 grep -Fq 'Easy \| relaxed' "$temporary_directory/check-in.md"
 grep -q "right knee" "$temporary_directory/check-in.md"
 grep -q "Sleep 65/100; Readiness 59/100" "$temporary_directory/check-in.md"

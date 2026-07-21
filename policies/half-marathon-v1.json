@@ -219,6 +219,7 @@
       "phase_ids": [
         "foundation",
         "build",
+        "recovery",
         "race_specific"
       ],
       "description": "Structured repetitions with recoveries and complete warm-up and cooldown.",
@@ -235,6 +236,16 @@
       "rule_id": "RECIPE-01"
     },
     {
+      "recipe_id": "continuous-threshold",
+      "category_id": "quality",
+      "phase_ids": [
+        "build",
+        "race_specific"
+      ],
+      "description": "One continuous controlled threshold segment with complete warm-up and cooldown.",
+      "rule_id": "RECIPE-01"
+    },
+    {
       "recipe_id": "half-marathon-segments",
       "category_id": "quality",
       "phase_ids": [
@@ -243,6 +254,15 @@
       ],
       "description": "Race-specific segments anchored to the supported pace rather than an unsupported aspirational target.",
       "rule_id": "RECIPE-01"
+    },
+    {
+      "recipe_id": "race-week-sharpening",
+      "category_id": "quality",
+      "phase_ids": [
+        "race"
+      ],
+      "description": "A short controlled quality segment early in race week, separated from the goal event.",
+      "rule_id": "TAPER-01"
     },
     {
       "recipe_id": "half-marathon-race",

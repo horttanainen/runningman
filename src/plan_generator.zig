@@ -2,6 +2,7 @@ const std = @import("std");
 const assessment = @import("assessment.zig");
 const date = @import("date.zig");
 const model = @import("model.zig");
+const plan_provenance = @import("plan_provenance.zig");
 const plan_revision = @import("plan_revision.zig");
 const plan_validator = @import("plan_validator.zig");
 const runner_profile = @import("runner_profile.zig");
@@ -13,6 +14,12 @@ const MacroWeek = struct {
     phase: []const u8,
     target_km: f64,
     long_km: f64,
+    volume_method: plan_provenance.VolumeMethod,
+    previous_progression_km: ?f64,
+    applied_volume_fraction: ?f64,
+    previous_long_km: ?f64,
+    long_weekly_share_limit_km: f64,
+    long_progression_limit_km: f64,
 };
 
 const PaceProfile = struct {
@@ -30,6 +37,8 @@ pub fn generate(
     profile: runner_profile.RunnerProfile,
     policy: training_policy.Policy,
     result: assessment.Assessment,
+    evidence_ledger_id: []const u8,
+    source_hashes: plan_provenance.SourceHashes,
     base_schedule_id: u64,
 ) !plan_revision.RevisionFile {
     const profile_summary = try runner_profile.validate(profile);
@@ -43,6 +52,7 @@ pub fn generate(
     const proposed_weeks = try buildProposedWeeks(
         allocator,
         profile,
+        policy,
         macrocycle,
         profile_summary.plan_days,
     );
@@ -53,7 +63,10 @@ pub fn generate(
         macrocycle,
         profile_summary.plan_days,
         paces,
+        result.training_pace_anchor_seconds,
     );
+
+    const assessment_snapshot = assessmentSnapshot(profile, policy, result);
 
     const target_text = if (result.training_pace_anchor_seconds) |target|
         try std.fmt.allocPrint(allocator, "Supported half-marathon target: {d}:{d:0>2}:{d:0>2}", .{
@@ -85,6 +98,7 @@ pub fn generate(
         "Paces unavailable; use the stated RPE and conversational guidance";
 
     const revision: plan_revision.RevisionFile = .{
+        .schema_version = 2,
         .base_schedule_id = base_schedule_id,
         .effective_from = profile.plan_start_date.value,
         .reason = "Generated from runner profile and half-marathon-v1 policy.",
@@ -94,17 +108,17 @@ pub fn generate(
         .intensity_guidance = policy.intensity_distribution.easy_effort_guidance,
         .pace_profile = pace_text,
         .race_date = profile.goal.race_date.value,
-        .assessment = .{
-            .profile_id = profile.profile_id,
-            .policy_id = policy.policy_id,
-            .policy_version = policy.policy_version,
-            .confidence = @tagName(result.confidence),
-            .feasibility = @tagName(result.feasibility),
-            .recommended_target_seconds = result.planner_recommended_target_seconds,
-            .requested_target_seconds = result.requested_target_seconds,
-            .training_pace_anchor_seconds = result.training_pace_anchor_seconds,
-            .expected_shortfall_seconds = result.expected_shortfall_seconds,
+        .provenance = .{
+            .generator_version = plan_provenance.generator_version,
+            .runner_profile_sha256 = source_hashes.runner_profile_sha256,
+            .training_policy_sha256 = source_hashes.training_policy_sha256,
+            .evidence_ledger_id = evidence_ledger_id,
+            .evidence_ledger_sha256 = source_hashes.evidence_ledger_sha256,
+            .runner_profile = profile,
+            .training_policy = policy,
+            .assessment = assessment_snapshot,
         },
+        .assessment = assessment_snapshot,
         .weeks = proposed_weeks,
         .workouts = workouts,
     };
@@ -115,6 +129,7 @@ pub fn generate(
 fn buildProposedWeeks(
     allocator: std.mem.Allocator,
     profile: runner_profile.RunnerProfile,
+    policy: training_policy.Policy,
     macrocycle: []const MacroWeek,
     plan_days: u16,
 ) ![]plan_revision.ProposedWeek {
@@ -130,6 +145,31 @@ fn buildProposedWeeks(
             .phase = week.phase,
             .target_core_distance_km = week.target_km,
             .long_run_distance_km = week.long_km,
+            .decision = .{
+                .periodization_rule_id = policy.periodization.rule_id,
+                .volume_rule_id = policy.volume_progression.rule_id,
+                .long_run_rule_id = policy.long_run.rule_id,
+                .recovery_rule_id = if (week.volume_method == .recovery_reduction)
+                    policy.recovery.rule_id
+                else
+                    null,
+                .taper_rule_id = if (week.volume_method == .taper_reduction)
+                    policy.taper.rule_id
+                else
+                    null,
+                .baseline_weekly_distance_km = profile.baseline.average_weekly_distance_km.value,
+                .baseline_weekly_distance_source = profile.baseline.average_weekly_distance_km.source,
+                .volume_method = week.volume_method,
+                .previous_progression_distance_km = week.previous_progression_km,
+                .applied_volume_fraction = week.applied_volume_fraction,
+                .peak_volume_limit_km = profile.baseline.average_weekly_distance_km.value *
+                    policy.volume_progression.maximum_peak_relative_to_baseline,
+                .baseline_longest_run_km = profile.baseline.longest_run_km.value,
+                .baseline_longest_run_source = profile.baseline.longest_run_km.source,
+                .previous_long_run_distance_km = week.previous_long_km,
+                .long_run_weekly_share_limit_km = week.long_weekly_share_limit_km,
+                .long_run_progression_limit_km = week.long_progression_limit_km,
+            },
         };
     }
     return result;
@@ -172,21 +212,32 @@ fn buildMacrocycle(
     var peak: f64 = baseline;
 
     for (weeks, 0..) |*week, index| {
+        week.previous_progression_km = null;
+        week.applied_volume_fraction = null;
         if (index < pre_specific_count) {
             const foundation = index < policy.periodization.minimum_foundation_weeks;
             const recovery = !foundation and build_since_recovery >=
                 policy.recovery.minimum_build_weeks_between_recovery;
             if (recovery) {
                 week.phase = "recovery";
+                week.volume_method = .recovery_reduction;
+                week.previous_progression_km = progression_volume;
+                week.applied_volume_fraction = policy.recovery.maximum_volume_fraction;
                 week.target_km = roundHalf(progression_volume * policy.recovery.maximum_volume_fraction);
                 build_since_recovery = 0;
             } else {
                 week.phase = if (foundation) "foundation" else "build";
                 if (index > 0) {
+                    week.volume_method = .build_progression;
+                    week.previous_progression_km = progression_volume;
+                    week.applied_volume_fraction = 1 +
+                        policy.volume_progression.maximum_build_increase_fraction * 0.8;
                     progression_volume = @min(
                         maximum,
                         roundHalf(progression_volume * (1 + policy.volume_progression.maximum_build_increase_fraction * 0.8)),
                     );
+                } else {
+                    week.volume_method = .baseline;
                 }
                 week.target_km = progression_volume;
                 if (!foundation) build_since_recovery += 1;
@@ -194,6 +245,10 @@ fn buildMacrocycle(
             }
         } else if (index < pre_specific_count + policy.periodization.minimum_race_specific_weeks) {
             week.phase = "race_specific";
+            week.volume_method = .race_specific_progression;
+            week.previous_progression_km = progression_volume;
+            week.applied_volume_fraction = 1 +
+                policy.volume_progression.maximum_build_increase_fraction * 0.6;
             progression_volume = @min(
                 maximum,
                 roundHalf(progression_volume * (1 + policy.volume_progression.maximum_build_increase_fraction * 0.6)),
@@ -202,19 +257,33 @@ fn buildMacrocycle(
             peak = @max(peak, week.target_km);
         } else if (index < week_count - 1) {
             week.phase = "taper";
+            week.volume_method = .taper_reduction;
             const taper_index = index - (pre_specific_count + policy.periodization.minimum_race_specific_weeks);
             const fraction: f64 = if (taper_index == 0) 0.59 else 0.50;
+            week.previous_progression_km = peak;
+            week.applied_volume_fraction = fraction;
             week.target_km = roundHalf(peak * fraction);
         } else {
             week.phase = "race";
+            week.volume_method = .race_week;
             week.target_km = policy.support.race_distance_km +
                 @max(0.0, baseline * 0.4);
         }
 
         if (std.mem.eql(u8, week.phase, "race")) {
             week.long_km = 0;
+            week.previous_long_km = prior_long;
+            week.long_weekly_share_limit_km =
+                week.target_km * policy.long_run.maximum_weekly_distance_fraction;
+            week.long_progression_limit_km = prior_long +
+                policy.long_run.maximum_weekly_increase_km;
             continue;
         }
+        week.previous_long_km = prior_long;
+        week.long_weekly_share_limit_km =
+            week.target_km * policy.long_run.maximum_weekly_distance_fraction;
+        week.long_progression_limit_km =
+            prior_long + policy.long_run.maximum_weekly_increase_km;
         var desired = @min(
             policy.long_run.maximum_peak_distance_km,
             week.target_km * policy.long_run.maximum_weekly_distance_fraction,
@@ -234,6 +303,7 @@ fn allocateWorkouts(
     weeks: []const MacroWeek,
     plan_days: u16,
     paces: PaceProfile,
+    training_pace_anchor_seconds: ?u32,
 ) ![]plan_revision.ProposedWorkout {
     const workouts = try allocator.alloc(plan_revision.ProposedWorkout, plan_days);
     const start = try date.parse(profile.plan_start_date.value);
@@ -354,10 +424,193 @@ fn allocateWorkouts(
             } else {
                 workouts[output_index] = try restWorkout(allocator, text, week.phase, "Rest day.");
             }
+            workouts[output_index].decision = try workoutDecision(
+                allocator,
+                profile,
+                policy,
+                workouts[output_index],
+                week.target_km,
+                weekday,
+                training_pace_anchor_seconds,
+            );
             output_index += 1;
         }
     }
     return workouts;
+}
+
+fn assessmentSnapshot(
+    profile: runner_profile.RunnerProfile,
+    policy: training_policy.Policy,
+    result: assessment.Assessment,
+) plan_provenance.AssessmentSnapshot {
+    return .{
+        .profile_id = profile.profile_id,
+        .policy_id = policy.policy_id,
+        .policy_version = policy.policy_version,
+        .confidence = @tagName(result.confidence),
+        .feasibility = @tagName(result.feasibility),
+        .recommended_target_seconds = result.planner_recommended_target_seconds,
+        .requested_target_seconds = result.requested_target_seconds,
+        .training_pace_anchor_seconds = result.training_pace_anchor_seconds,
+        .expected_shortfall_seconds = result.expected_shortfall_seconds,
+    };
+}
+
+fn workoutDecision(
+    allocator: std.mem.Allocator,
+    profile: runner_profile.RunnerProfile,
+    policy: training_policy.Policy,
+    workout: plan_revision.ProposedWorkout,
+    week_target_km: f64,
+    scheduled_weekday: runner_profile.Weekday,
+    training_pace_anchor_seconds: ?u32,
+) !plan_provenance.WorkoutDecision {
+    const role: plan_provenance.AllocationRole = if (std.mem.eql(u8, workout.kind, "rest"))
+        .rest
+    else if (std.mem.eql(u8, workout.kind, "easy"))
+        .easy
+    else if (std.mem.eql(u8, workout.kind, "optional-recovery"))
+        .optional_recovery
+    else if (std.mem.eql(u8, workout.kind, "quality"))
+        .quality
+    else if (std.mem.eql(u8, workout.kind, "long"))
+        .long_run
+    else if (std.mem.eql(u8, workout.kind, "race"))
+        .race
+    else
+        return error.UnknownGeneratedWorkoutKind;
+    const recipe_id = recipeId(role, workout.phase);
+    const recipe = findRecipe(policy, recipe_id) orelse
+        return error.GeneratedWorkoutRecipeNotFound;
+
+    const rule_ids_buffer = try allocator.alloc([]const u8, 4);
+    var rule_count: usize = 0;
+    appendUniqueRule(rule_ids_buffer, &rule_count, recipe.rule_id);
+    switch (role) {
+        .rest, .easy => {},
+        .optional_recovery => appendUniqueRule(
+            rule_ids_buffer,
+            &rule_count,
+            policy.optional_run.rule_id,
+        ),
+        .quality => {
+            appendUniqueRule(
+                rule_ids_buffer,
+                &rule_count,
+                policy.intensity_distribution.rule_id,
+            );
+            appendUniqueRule(
+                rule_ids_buffer,
+                &rule_count,
+                policy.scheduling.rule_id,
+            );
+        },
+        .long_run => {
+            appendUniqueRule(rule_ids_buffer, &rule_count, policy.long_run.rule_id);
+            appendUniqueRule(rule_ids_buffer, &rule_count, policy.scheduling.rule_id);
+        },
+        .race => appendUniqueRule(rule_ids_buffer, &rule_count, policy.support.rule_id),
+    }
+
+    const preferred_weekday: ?runner_profile.Weekday = switch (role) {
+        .long_run => profile.availability.preferred_long_run_day.value,
+        .quality => if (profile.availability.preferred_quality_day) |preferred|
+            preferred.value
+        else
+            null,
+        .optional_recovery => if (profile.availability.optional_recovery_day) |preferred|
+            preferred.value
+        else
+            null,
+        else => null,
+    };
+    const distance_method: plan_provenance.DistanceMethod = switch (role) {
+        .rest => .none,
+        .easy => .weekly_remainder,
+        .optional_recovery => .optional_weekly_fraction,
+        .quality => .quality_weekly_fraction,
+        .long_run => .weekly_long_run,
+        .race => .race_distance,
+    };
+    const pace_method: plan_provenance.PaceMethod = if (role == .rest)
+        .none
+    else if (training_pace_anchor_seconds == null)
+        .effort_only
+    else switch (role) {
+        .easy, .optional_recovery, .long_run => .easy_anchor_offset,
+        .quality => .quality_anchor_offset,
+        .race => .race_anchor,
+        .rest => .none,
+    };
+
+    return .{
+        .recipe_id = recipe_id,
+        .rule_ids = rule_ids_buffer[0..rule_count],
+        .allocation_role = role,
+        .distance_method = distance_method,
+        .pace_method = pace_method,
+        .week_target_core_distance_km = week_target_km,
+        .allocated_distance_km = proposedWorkoutDistance(workout),
+        .training_pace_anchor_seconds = training_pace_anchor_seconds,
+        .scheduled_weekday = scheduled_weekday,
+        .preferred_weekday = preferred_weekday,
+        .preference_honored = if (preferred_weekday) |preferred|
+            preferred == scheduled_weekday
+        else
+            null,
+    };
+}
+
+fn recipeId(role: plan_provenance.AllocationRole, phase: []const u8) []const u8 {
+    return switch (role) {
+        .rest => "rest-day",
+        .easy => "easy-distance",
+        .optional_recovery => "optional-recovery",
+        .long_run => "long-easy",
+        .race => "half-marathon-race",
+        .quality => if (std.mem.eql(u8, phase, "foundation") or
+            std.mem.eql(u8, phase, "recovery"))
+            "aerobic-intervals"
+        else if (std.mem.eql(u8, phase, "build"))
+            "continuous-threshold"
+        else if (std.mem.eql(u8, phase, "race"))
+            "race-week-sharpening"
+        else
+            "half-marathon-segments",
+    };
+}
+
+fn findRecipe(
+    policy: training_policy.Policy,
+    recipe_id: []const u8,
+) ?training_policy.WorkoutRecipe {
+    for (policy.workout_recipes) |recipe| {
+        if (std.mem.eql(u8, recipe.recipe_id, recipe_id)) return recipe;
+    }
+    return null;
+}
+
+fn appendUniqueRule(
+    rule_ids: [][]const u8,
+    count: *usize,
+    rule_id: []const u8,
+) void {
+    for (rule_ids[0..count.*]) |existing| {
+        if (std.mem.eql(u8, existing, rule_id)) return;
+    }
+    rule_ids[count.*] = rule_id;
+    count.* += 1;
+}
+
+fn proposedWorkoutDistance(workout: plan_revision.ProposedWorkout) f64 {
+    var total_km: f64 = 0;
+    for (workout.segments) |segment| {
+        if (segment.distance_km) |distance_km| {
+            total_km += distance_km * @as(f64, @floatFromInt(segment.repetitions));
+        }
+    }
+    return total_km;
 }
 
 fn chooseLongDay(
