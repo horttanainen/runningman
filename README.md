@@ -73,6 +73,22 @@ every week and workout. Applying a proposal preserves the same provenance in
 the append-only schedule revision. No generation timestamp is included, so
 identical source files still produce byte-identical proposals.
 
+Explain an active schedule, one active workout, a proposal, or one proposed
+workout without selecting a mode flag:
+
+```sh
+./zig-out/bin/runningman plan explain
+./zig-out/bin/runningman plan explain 2026-07-22
+./zig-out/bin/runningman plan explain proposed-plan.json
+./zig-out/bin/runningman plan explain proposed-plan.json 2026-07-22
+```
+
+The command recognizes a strict `YYYY-MM-DD` argument as a date and otherwise
+treats it as a proposal path. It recomputes the target assessment and explains
+phase purpose, weekly progression, workout allocation, pace derivation, rule
+summaries, evidence IDs, and explicit product assumptions. Explanation is
+read-only and never revises the schedule.
+
 The canonical JSON Schemas include:
 
 - [`schemas/runner-profile-v1.schema.json`](schemas/runner-profile-v1.schema.json)
@@ -392,7 +408,8 @@ when they were logged.
 
 Every JSON line has `schema_version: 1` and one of these event types:
 
-- `schedule`: immutable context and revision metadata
+- `schedule`: immutable context, revision metadata, provenance, and weekly
+  decisions when available
 - `workout`: one dated workout in a complete schedule snapshot, with structured
   segments and pace ranges
 - `activity`: an actual result linked to the exact schedule and workout

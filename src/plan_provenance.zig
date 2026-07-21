@@ -64,6 +64,16 @@ pub const WeekDecision = struct {
     long_run_progression_limit_km: f64,
 };
 
+pub const PlanWeek = struct {
+    week: u8,
+    start_date: []const u8,
+    end_date: []const u8,
+    phase: []const u8,
+    target_core_distance_km: f64,
+    long_run_distance_km: f64,
+    decision: WeekDecision,
+};
+
 pub const AllocationRole = enum {
     rest,
     easy,

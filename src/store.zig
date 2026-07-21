@@ -163,6 +163,7 @@ fn applyEvent(storage: *Store, allocator: std.mem.Allocator, event: model.Event)
                 .race_date = event.race_date orelse "",
                 .source = event.source orelse "",
                 .plan_provenance = event.plan_provenance,
+                .plan_weeks = event.plan_weeks orelse &.{},
                 .recorded_at = event.recorded_at,
             };
             try storage.schedules.put(allocator, value.id, value);

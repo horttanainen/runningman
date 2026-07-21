@@ -85,6 +85,21 @@ grep -q "Basis: recipe aerobic-intervals; distance quality_weekly_fraction" "$te
 grep -q "Macrocycle" "$temporary_directory/generated-preview.txt"
 grep -q "Week 13 .*race, 33.1 km core" "$temporary_directory/generated-preview.txt"
 grep -q "No data was changed" "$temporary_directory/generated-preview.txt"
+"$binary" --data "$generated_data_file" plan explain "$generated_plan" \
+    > "$temporary_directory/proposal-explanation.txt"
+grep -q "Proposal explanation: schedule #1" "$temporary_directory/proposal-explanation.txt"
+grep -q "Current half-marathon equivalent: 1:57:49" \
+    "$temporary_directory/proposal-explanation.txt"
+grep -q "Week 1 .*foundation, 30.0 km core, 12.0 km long run" \
+    "$temporary_directory/proposal-explanation.txt"
+grep -q "Volume method: baseline" "$temporary_directory/proposal-explanation.txt"
+"$binary" --data "$generated_data_file" plan explain "$generated_plan" 2026-07-21 \
+    > "$temporary_directory/proposal-workout-explanation.txt"
+grep -q "Workout explanation" "$temporary_directory/proposal-workout-explanation.txt"
+grep -q "Recipe: aerobic-intervals" "$temporary_directory/proposal-workout-explanation.txt"
+grep -q "Allocation: quality; 6.0 km from a 30.0 km core week" \
+    "$temporary_directory/proposal-workout-explanation.txt"
+grep -q "INT-01:" "$temporary_directory/proposal-workout-explanation.txt"
 legacy_plan="$temporary_directory/legacy-plan.json"
 sed 's/"schema_version": 2/"schema_version": 1/' "$generated_plan" > "$legacy_plan"
 if "$binary" --data "$generated_data_file" plan preview "$legacy_plan" \
@@ -151,9 +166,36 @@ grep -q "Applied schedule #2" "$temporary_directory/generated-apply.txt"
 grep -q '"plan_provenance":{' "$generated_data_file"
 grep -q '"generator_version":"runningman-phase-1-v1"' "$generated_data_file"
 grep -q '"decision":{"recipe_id":"aerobic-intervals"' "$generated_data_file"
+grep -q '"plan_weeks":\[' "$generated_data_file"
 "$binary" --data "$generated_data_file" today 2026-07-21 \
     > "$temporary_directory/generated-reload.txt"
 grep -q "Schedule #2" "$temporary_directory/generated-reload.txt"
+line_count_before=$(wc -l < "$generated_data_file" | tr -d ' ')
+"$binary" --data "$generated_data_file" plan explain \
+    > "$temporary_directory/schedule-explanation.txt"
+line_count_after=$(wc -l < "$generated_data_file" | tr -d ' ')
+test "$line_count_before" = "$line_count_after"
+grep -q "Schedule #2 explanation" "$temporary_directory/schedule-explanation.txt"
+grep -q "Macrocycle explanation" "$temporary_directory/schedule-explanation.txt"
+grep -q "Volume method: recovery_reduction" "$temporary_directory/schedule-explanation.txt"
+"$binary" --data "$generated_data_file" plan explain 2026-07-21 \
+    > "$temporary_directory/schedule-workout-explanation.txt"
+grep -q "Schedule #2 explanation" "$temporary_directory/schedule-workout-explanation.txt"
+grep -q "Recipe: aerobic-intervals" "$temporary_directory/schedule-workout-explanation.txt"
+legacy_explanation_data="$temporary_directory/legacy-explanation-data.jsonl"
+sed 's/,"plan_weeks":\[[^]]*\]//' "$generated_data_file" > "$legacy_explanation_data"
+"$binary" --data "$legacy_explanation_data" plan explain 2026-07-21 \
+    > "$temporary_directory/legacy-workout-explanation.txt"
+grep -q "Week derivation record: unavailable for this previously applied schedule" \
+    "$temporary_directory/legacy-workout-explanation.txt"
+grep -q "the workout decision below was persisted" \
+    "$temporary_directory/legacy-workout-explanation.txt"
+if grep -q "Source: reconstructed from persisted workout decisions" \
+    "$temporary_directory/legacy-workout-explanation.txt"
+then
+    echo "expected the reconstruction source to be stated only once" >&2
+    exit 1
+fi
 
 future_plan_source="$temporary_directory/future-plan-source.json"
 future_plan="$temporary_directory/future-plan.json"

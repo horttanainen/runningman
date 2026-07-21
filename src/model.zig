@@ -29,6 +29,7 @@ pub const Schedule = struct {
     race_date: []const u8,
     source: []const u8,
     plan_provenance: ?plan_provenance.PlanProvenance = null,
+    plan_weeks: []const plan_provenance.PlanWeek = &.{},
     recorded_at: i64,
 };
 
@@ -108,6 +109,7 @@ pub const Event = struct {
     race_date: ?[]const u8 = null,
     source: ?[]const u8 = null,
     plan_provenance: ?plan_provenance.PlanProvenance = null,
+    plan_weeks: ?[]const plan_provenance.PlanWeek = null,
 
     schedule_id: ?u64 = null,
     workout_id: ?u64 = null,
@@ -158,6 +160,7 @@ pub fn scheduleEvent(value: Schedule) Event {
         .race_date = value.race_date,
         .source = value.source,
         .plan_provenance = value.plan_provenance,
+        .plan_weeks = value.plan_weeks,
         .recorded_at = value.recorded_at,
     };
 }

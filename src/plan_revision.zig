@@ -26,15 +26,7 @@ pub const RevisionFile = struct {
 
 pub const ProposedAssessment = plan_provenance.AssessmentSnapshot;
 
-pub const ProposedWeek = struct {
-    week: u8,
-    start_date: []const u8,
-    end_date: []const u8,
-    phase: []const u8,
-    target_core_distance_km: f64,
-    long_run_distance_km: f64,
-    decision: plan_provenance.WeekDecision,
-};
+pub const ProposedWeek = plan_provenance.PlanWeek;
 
 pub const ProposedWorkout = struct {
     date: []const u8,
@@ -161,6 +153,7 @@ pub fn createEvents(
         .race_date = valueOrFallback(revision.race_date, parent.race_date),
         .source = "Complete remaining-program revision imported from a reviewed JSON file.",
         .plan_provenance = revision.provenance,
+        .plan_weeks = revision.weeks,
         .recorded_at = recorded_at,
     };
     try events.append(allocator, model.scheduleEvent(schedule_value));

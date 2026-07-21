@@ -499,7 +499,7 @@ Review gate: inspect several complete schedules, including boundary cases.
 
 - [x] Preserve policy and input provenance (Increment 4.1).
 - [x] Revalidate edited proposals before preview and apply (Increment 4.2).
-- Add `plan explain`.
+- [x] Add `plan explain` (Increment 4.3).
 - Expand review export.
 - Complete the synthetic-profile and invariant-test suite.
 

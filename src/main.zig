@@ -5,6 +5,7 @@ const check_in = @import("check_in.zig");
 const date = @import("date.zig");
 const evidence_ledger = @import("evidence_ledger.zig");
 const model = @import("model.zig");
+const plan_explanation = @import("plan_explanation.zig");
 const plan_generator = @import("plan_generator.zig");
 const plan_provenance = @import("plan_provenance.zig");
 const plan_revision = @import("plan_revision.zig");
@@ -468,6 +469,10 @@ fn commandPlan(
         try commandPlanGenerate(allocator, io, writer, data_path, storage, args[1..]);
         return;
     }
+    if (std.mem.eql(u8, action, "explain")) {
+        try commandPlanExplain(allocator, io, writer, storage, args[1..]);
+        return;
+    }
 
     if (args.len != 2) return error.PlanFileRequired;
     const revision = try plan_revision.load(allocator, io, args[1]);
@@ -496,6 +501,50 @@ fn commandPlan(
     } else {
         return error.UnknownPlanAction;
     }
+}
+
+fn commandPlanExplain(
+    allocator: std.mem.Allocator,
+    io: Io,
+    writer: *Io.Writer,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    if (args.len > 2) return error.InvalidPlanExplainCommand;
+
+    var proposal_path: ?[]const u8 = null;
+    var target_date: ?date.Date = null;
+    if (args.len == 1) {
+        if (looksLikeDate(args[0])) {
+            target_date = try date.parse(args[0]);
+        } else {
+            proposal_path = args[0];
+        }
+    } else if (args.len == 2) {
+        if (looksLikeDate(args[0]) or !looksLikeDate(args[1])) {
+            return error.InvalidPlanExplainCommand;
+        }
+        proposal_path = args[0];
+        target_date = try date.parse(args[1]);
+    }
+
+    if (proposal_path) |path| {
+        const revision = try plan_revision.load(allocator, io, path);
+        try plan_revision.validate(storage, revision);
+        _ = try plan_validator.validateEmbedded(allocator, revision);
+        try plan_explanation.printProposal(writer, revision, target_date);
+        return;
+    }
+
+    const schedule_value = if (target_date) |target|
+        store.effectiveSchedule(storage, target) orelse return error.NoScheduleForDate
+    else
+        storage.schedules.get(storage.max_schedule_id) orelse return error.NoScheduleForDate;
+    try plan_explanation.printSchedule(writer, storage, schedule_value, target_date);
+}
+
+fn looksLikeDate(value: []const u8) bool {
+    return value.len == 10 and value[4] == '-' and value[7] == '-';
 }
 
 fn commandPlanGenerate(
@@ -910,6 +959,7 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman [--data PATH] plan generate RUNNER_PROFILE.json --output PROPOSED_PLAN.json [--policy POLICY.json] [--evidence EVIDENCE_LEDGER.json]
         \\  runningman [--data PATH] plan preview REVISION.json
         \\  runningman [--data PATH] plan apply REVISION.json
+        \\  runningman [--data PATH] plan explain [DATE|REVISION.json [DATE]]
         \\  runningman [--data PATH] review [--weeks N] [--ending DATE]
         \\  runningman [--data PATH] export [--format markdown|jsonl] [--weeks N] [--ending DATE]
         \\
@@ -1083,7 +1133,8 @@ fn friendlyError(err: anyerror) []const u8 {
         error.GeneratedTaperVolumeInvalid => "generated taper reduction is outside policy bounds",
         error.GeneratedTaperMissingIntensity => "generated taper does not retain a quality session",
         error.PlanFileRequired => "plan preview/apply requires exactly one revision JSON file",
-        error.UnknownPlanAction => "plan action must be generate, preview, or apply",
+        error.UnknownPlanAction => "plan action must be generate, preview, apply, or explain",
+        error.InvalidPlanExplainCommand => "plan explain accepts no arguments, DATE, REVISION.json, or REVISION.json DATE",
         error.PlanAlreadyPeriodized => "the latest schedule is already periodized",
         error.RevisionFileNotFound => "the revision JSON file was not found",
         error.InvalidRevisionFile => "the revision file is not valid JSON in the expected format",
@@ -1096,6 +1147,8 @@ fn friendlyError(err: anyerror) []const u8 {
         error.RevisionPlanStartMismatch => "the proposal plan start does not match the schedule being revised",
         error.RevisionEffectiveAfterRace => "the revision cannot become effective after race day",
         error.RevisionHistoricalWorkoutChanged => "workouts before effective_from must exactly match the current schedule",
+        error.PlanExplanationUnavailable => "this schedule predates planner provenance and cannot be explained",
+        error.PlanWorkoutExplanationUnavailable => "this workout has no persisted planner decision to explain",
         error.RevisionDatesNotConsecutive => "the revision must contain one entry for every consecutive day",
         error.RevisionRaceDateRequired => "the schedule needs a race date",
         error.RevisionMustEndOnRaceDate => "the complete remaining program must end on race day",
