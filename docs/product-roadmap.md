@@ -7,11 +7,12 @@ This document records the intended technical direction for `runningman` and the
 detailed design for Phase 1. The phase is being implemented through explicit
 review gates.
 
-Implementation status: Phase 1 Increments 1–3 and Increment 4.1 are implemented
-for review. They add versioned runner-profile, evidence-ledger, training-policy,
-and proposed-plan documents; deterministic baseline assessment and schedule
-generation; an independent plan validator; preview/apply compatibility; and
-persisted input, policy, week, and workout provenance.
+Implementation status: Phase 1 Increments 1–3 and Increments 4.1–4.3 are
+implemented for review. They add versioned runner-profile, evidence-ledger,
+training-policy, and proposed-plan documents; deterministic baseline assessment
+and schedule generation; an independent plan validator; preview/apply
+compatibility; persisted input, policy, week, and workout provenance; and
+explanations for proposed and applied plans.
 
 ## Direction
 
@@ -500,11 +501,76 @@ Review gate: inspect several complete schedules, including boundary cases.
 - [x] Preserve policy and input provenance (Increment 4.1).
 - [x] Revalidate edited proposals before preview and apply (Increment 4.2).
 - [x] Add `plan explain` (Increment 4.3).
-- Expand review export.
+- Expand review export and add deterministic review classification (Increment
+  4.4).
 - Complete the synthetic-profile and invariant-test suite.
 
 Review gate: decide whether Phase 1 is stable enough to begin the Swift port or
 requires another policy iteration in Zig.
+
+#### Increment 4.4 plan: review export and local classification
+
+`runningman review` must produce a self-contained, reproducible Markdown
+snapshot for an explicit review period. External language models are optional;
+they are not part of the decision path.
+
+Keep the existing interface:
+
+```sh
+runningman review --weeks 4 --ending 2026-08-16
+```
+
+The export must include:
+
+- the active schedule, race date, time remaining, profile and policy identity,
+  hashes, assessment confidence, feasibility, supported outcome range, and
+  target anchors;
+- daily plan-versus-reality records with outcome, distance, duration, average
+  heart rate when recorded, RPE, pain, modification reason, next-morning Sleep
+  and Readiness Scores, and explicit missing data;
+- planned and completed distance, core and optional adherence, workout-category
+  adherence, previous-period comparison, and bounded sleep, readiness, pain,
+  and unusually difficult-session signals;
+- the next two weeks in daily detail and the remaining macrocycle as compact
+  weekly phase, distance, long-run, progression, recovery, and taper context;
+  and
+- the applicable progression, recovery, intensity-distribution, long-run,
+  scheduling, optional-run, missed-workout, and taper guardrails with rule IDs.
+
+Runningman must classify the review itself using a versioned deterministic
+review policy:
+
+- `KEEP_PLAN`: the minimum data coverage is present and no review rule fired;
+- `REVIEW_REQUIRED`: one or more explicit review rules fired; and
+- `INSUFFICIENT_DATA`: the observation window lacks the required activity or
+  recovery coverage for a trustworthy decision.
+
+Classification rules must operate on structured data, use an explicit
+observation window, record their inputs and rule IDs, and distinguish evidence
+backed thresholds from conservative product assumptions. Missing activity must
+not be treated as rest, and one unusual Oura score must not automatically alter
+the schedule. Thresholds and persistence requirements must be reviewed before
+implementation rather than chosen implicitly in code.
+
+The output must explain the classification and list every triggering or
+coverage rule. It must never mutate the schedule. When the result is
+`REVIEW_REQUIRED`, the export may be given to a person or an optional local or
+external language model for interpretation, but any replacement program still
+uses proposed-plan v2, independent validation, preview, and explicit apply.
+
+This increment does not implement automatic `reduce`, `hold`, or `progress`
+adaptation. Phase 3 will add that response policy, candidate-plan generation,
+and later optional learned personalization. Apple Foundation Models may provide
+local note interpretation and natural-language explanation in the Swift
+application, while Core ML remains an optional deployment mechanism after a
+sufficient runner-week outcome dataset exists. Neither model bypasses the
+deterministic review policy or plan validator.
+
+Increment 4.4 tests must cover complete and sparse logs, missing Oura data,
+superseded activity corrections, modified and skipped workouts, persisted and
+reconstructed weekly decisions, explicit ending-date determinism, all three
+classification results, rule explanations, absence of future-data leakage, and
+confirmation that review never changes stored data.
 
 ## Phase 1 acceptance criteria
 
@@ -526,6 +592,10 @@ Phase 1 is complete when:
 - every workout contains structured, renderable instructions;
 - planned distance and pace imply visible duration estimates;
 - the plan records its profile snapshot, policy version, and policy hash;
+- weekly review produces a local, explained `KEEP_PLAN`, `REVIEW_REQUIRED`, or
+  `INSUFFICIENT_DATA` classification without requiring a language model;
+- review classification is reproducible for an explicit ending date and never
+  changes the stored schedule;
 - representative three-to-six-day plans have been manually reviewed;
 - generation never writes data before explicit preview and apply; and
 - `./check.sh` exercises profile validation, generation, invariants, CLI flow,
