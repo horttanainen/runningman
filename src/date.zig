@@ -25,6 +25,56 @@ pub fn parse(text: []const u8) Error!Date {
     return result;
 }
 
+pub fn parseReference(text: []const u8) Error!Date {
+    return parseReferenceFrom(text, today());
+}
+
+pub fn parseReferenceFrom(text: []const u8, current_date: Date) Error!Date {
+    if (resolveRelativeReferenceFrom(text, current_date)) |value| return value;
+    if (looksLikeDayOfMonth(text)) return parseDayOfMonth(text, current_date);
+    return parse(text);
+}
+
+pub fn maybeParseReference(text: []const u8) Error!?Date {
+    return maybeParseReferenceFrom(text, today());
+}
+
+pub fn maybeParseReferenceFrom(text: []const u8, current_date: Date) Error!?Date {
+    if (resolveRelativeReferenceFrom(text, current_date)) |value| return value;
+    if (looksLikeDayOfMonth(text)) return try parseDayOfMonth(text, current_date);
+    if (!looksLikeDate(text)) return null;
+    return try parse(text);
+}
+
+pub fn resolveRelativeReference(text: []const u8) ?Date {
+    return resolveRelativeReferenceFrom(text, today());
+}
+
+pub fn resolveRelativeReferenceFrom(text: []const u8, current_date: Date) ?Date {
+    if (std.mem.eql(u8, text, "today")) return current_date;
+    if (std.mem.eql(u8, text, "tomorrow")) return addDays(current_date, 1);
+    return null;
+}
+
+fn looksLikeDate(text: []const u8) bool {
+    return text.len == 10 and text[4] == '-' and text[7] == '-';
+}
+
+fn looksLikeDayOfMonth(text: []const u8) bool {
+    if (text.len == 0 or text.len > 2) return false;
+    for (text) |character| {
+        if (character < '0' or character > '9') return false;
+    }
+    return true;
+}
+
+fn parseDayOfMonth(text: []const u8, current_date: Date) Error!Date {
+    const day = std.fmt.parseInt(u8, text, 10) catch return error.InvalidDate;
+    const result: Date = .{ .year = current_date.year, .month = current_date.month, .day = day };
+    if (!isValid(result)) return error.InvalidDate;
+    return result;
+}
+
 pub fn isValid(value: Date) bool {
     if (value.year < 1 or value.month < 1 or value.month > 12 or value.day < 1) return false;
     return value.day <= daysInMonth(value.year, value.month);
@@ -145,4 +195,63 @@ test "date round trip and weekday" {
 
 test "rejects impossible date" {
     try std.testing.expectError(error.InvalidDate, parse("2026-02-30"));
+}
+
+test "parses relative date references from a supplied current date" {
+    const current_date: Date = .{ .year = 2026, .month = 7, .day = 31 };
+
+    try std.testing.expectEqual(current_date, try parseReferenceFrom("today", current_date));
+    try std.testing.expectEqual(
+        Date{ .year = 2026, .month = 8, .day = 1 },
+        try parseReferenceFrom("tomorrow", current_date),
+    );
+    try std.testing.expectEqual(
+        Date{ .year = 2026, .month = 8, .day = 2 },
+        try parseReferenceFrom("2026-08-02", current_date),
+    );
+    try std.testing.expectError(error.InvalidDate, parseReferenceFrom("next-week", current_date));
+}
+
+test "parses a day number in the supplied current month" {
+    const current_date: Date = .{ .year = 2026, .month = 2, .day = 10 };
+
+    try std.testing.expectEqual(
+        Date{ .year = 2026, .month = 2, .day = 6 },
+        try parseReferenceFrom("6", current_date),
+    );
+    try std.testing.expectEqual(
+        Date{ .year = 2026, .month = 2, .day = 26 },
+        try parseReferenceFrom("26", current_date),
+    );
+    try std.testing.expectError(error.InvalidDate, parseReferenceFrom("0", current_date));
+    try std.testing.expectError(error.InvalidDate, parseReferenceFrom("30", current_date));
+}
+
+test "resolves only relative date references" {
+    const current_date: Date = .{ .year = 2026, .month = 7, .day = 31 };
+
+    try std.testing.expectEqual(
+        current_date,
+        resolveRelativeReferenceFrom("today", current_date).?,
+    );
+    try std.testing.expectEqual(
+        Date{ .year = 2026, .month = 8, .day = 1 },
+        resolveRelativeReferenceFrom("tomorrow", current_date).?,
+    );
+    try std.testing.expect(resolveRelativeReferenceFrom("2026-08-02", current_date) == null);
+    try std.testing.expect(resolveRelativeReferenceFrom("history", current_date) == null);
+}
+
+test "recognizes date references without consuming file paths" {
+    const current_date: Date = .{ .year = 2026, .month = 8, .day = 2 };
+
+    try std.testing.expect((try maybeParseReferenceFrom("today", current_date)) != null);
+    try std.testing.expect((try maybeParseReferenceFrom("tomorrow", current_date)) != null);
+    try std.testing.expect((try maybeParseReferenceFrom("26", current_date)) != null);
+    try std.testing.expect((try maybeParseReferenceFrom("2026-08-02", current_date)) != null);
+    try std.testing.expect((try maybeParseReferenceFrom("proposed-plan.json", current_date)) == null);
+    try std.testing.expectError(
+        error.InvalidDate,
+        maybeParseReferenceFrom("2026-99-99", current_date),
+    );
 }

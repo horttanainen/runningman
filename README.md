@@ -80,6 +80,7 @@ workout without selecting a mode flag:
 ./zig-out/bin/runningman plan explain
 ./zig-out/bin/runningman plan explain today
 ./zig-out/bin/runningman plan explain tomorrow
+./zig-out/bin/runningman plan explain 26
 ./zig-out/bin/runningman plan explain 2026-07-22
 ./zig-out/bin/runningman plan explain proposed-plan.json
 ./zig-out/bin/runningman plan explain proposed-plan.json today
@@ -170,6 +171,10 @@ Use a different file by placing `--data PATH` before the command:
 ./zig-out/bin/runningman --data ~/training/running.jsonl today
 ```
 
+Every CLI date argument accepts an explicit `YYYY-MM-DD`, a day number in the
+current month such as `26`, `today`, or `tomorrow`. Relative dates use the
+computer's local calendar date; a day number never rolls into another month.
+
 ## See the daily schedule
 
 With no command, `runningman` shows today:
@@ -178,7 +183,8 @@ With no command, `runningman` shows today:
 ./zig-out/bin/runningman
 ./zig-out/bin/runningman today
 ./zig-out/bin/runningman tomorrow
-./zig-out/bin/runningman today 2026-07-25
+./zig-out/bin/runningman 26
+./zig-out/bin/runningman 2026-07-25
 ```
 
 The output includes the phase, workout instructions, intensity, distance,

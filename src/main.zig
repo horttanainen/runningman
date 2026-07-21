@@ -134,10 +134,9 @@ fn run(
     try store.load(&storage, allocator, io, data_path);
     if (storage.schedules.count() == 0) return error.NotInitialized;
 
-    if (std.mem.eql(u8, command, "today")) {
-        try commandToday(writer, &storage, command_args);
-    } else if (std.mem.eql(u8, command, "tomorrow")) {
-        try commandTomorrow(writer, &storage, command_args);
+    if (try date.maybeParseReference(command)) |target_date| {
+        if (command_args.len != 0) return error.UnexpectedArgument;
+        try printDay(writer, &storage, target_date);
     } else if (std.mem.eql(u8, command, "log")) {
         try commandLog(allocator, io, reader, writer, data_path, &storage, command_args);
     } else if (std.mem.eql(u8, command, "check-in")) {
@@ -262,7 +261,7 @@ fn commandInit(
     try store.load(&existing, allocator, io, data_path);
     if (existing.schedules.count() != 0) return error.AlreadyInitialized;
 
-    const start = if (args.len == 0) date.today() else try date.parse(args[0]);
+    const start = if (args.len == 0) date.today() else try date.parseReference(args[0]);
     if (args.len > 1) return error.UnexpectedArgument;
     if (date.weekday(start) != 0) return error.StartMustBeMonday;
 
@@ -282,25 +281,6 @@ fn commandInit(
         try writer.writeAll("Today's schedule:\n");
         try printDay(writer, &initialized, date.today());
     }
-}
-
-fn commandToday(
-    writer: *Io.Writer,
-    storage: *const store.Store,
-    args: []const []const u8,
-) !void {
-    if (args.len > 1) return error.UnexpectedArgument;
-    const target_date = if (args.len == 1) try date.parse(args[0]) else date.today();
-    try printDay(writer, storage, target_date);
-}
-
-fn commandTomorrow(
-    writer: *Io.Writer,
-    storage: *const store.Store,
-    args: []const []const u8,
-) !void {
-    if (args.len != 0) return error.UnexpectedArgument;
-    try printDay(writer, storage, date.addDays(date.today(), 1));
 }
 
 fn commandLog(
@@ -422,10 +402,10 @@ fn commandHistory(
 ) !void {
     if (args.len > 2) return error.UnexpectedArgument;
     const start = if (args.len >= 1)
-        try date.parse(args[0])
+        try date.parseReference(args[0])
     else
         store.earliestScheduleDate(storage) orelse return error.NotInitialized;
-    const end = if (args.len == 2) try date.parse(args[1]) else date.today();
+    const end = if (args.len == 2) try date.parseReference(args[1]) else date.today();
     try validateRange(start, end);
     try report.printHistory(allocator, writer, storage, start, end);
 }
@@ -526,16 +506,16 @@ fn commandPlanExplain(
     var proposal_path: ?[]const u8 = null;
     var target_date: ?date.Date = null;
     if (args.len == 1) {
-        if (try parsePlanExplainDate(args[0])) |parsed_date| {
+        if (try date.maybeParseReference(args[0])) |parsed_date| {
             target_date = parsed_date;
         } else {
             proposal_path = args[0];
         }
     } else if (args.len == 2) {
-        if (try parsePlanExplainDate(args[0]) != null) return error.InvalidPlanExplainCommand;
+        if (try date.maybeParseReference(args[0]) != null) return error.InvalidPlanExplainCommand;
 
         proposal_path = args[0];
-        target_date = (try parsePlanExplainDate(args[1])) orelse
+        target_date = (try date.maybeParseReference(args[1])) orelse
             return error.InvalidPlanExplainCommand;
     }
 
@@ -552,21 +532,6 @@ fn commandPlanExplain(
     else
         storage.schedules.get(storage.max_schedule_id) orelse return error.NoScheduleForDate;
     try plan_explanation.printSchedule(writer, storage, schedule_value, target_date);
-}
-
-fn looksLikeDate(value: []const u8) bool {
-    return value.len == 10 and value[4] == '-' and value[7] == '-';
-}
-
-fn parsePlanExplainDate(value: []const u8) !?date.Date {
-    return parsePlanExplainDateFrom(value, date.today());
-}
-
-fn parsePlanExplainDateFrom(value: []const u8, current_date: date.Date) !?date.Date {
-    if (std.mem.eql(u8, value, "today")) return current_date;
-    if (std.mem.eql(u8, value, "tomorrow")) return date.addDays(current_date, 1);
-    if (!looksLikeDate(value)) return null;
-    return try date.parse(value);
 }
 
 fn commandPlanGenerate(
@@ -735,7 +700,7 @@ fn parseLogCommand(args: []const []const u8) !LogCommand {
     var result: LogCommand = .{ .target_date = date.today() };
     var index: usize = 0;
     if (args.len > 0 and !std.mem.startsWith(u8, args[0], "--")) {
-        result.target_date = try date.parse(args[0]);
+        result.target_date = try date.parseReference(args[0]);
         index = 1;
     }
     if (index == args.len) {
@@ -838,7 +803,7 @@ fn parseCheckInCommand(args: []const []const u8) !CheckInCommand {
     var result: CheckInCommand = .{ .target_date = date.today() };
     var index: usize = 0;
     if (args.len > 0 and !std.mem.startsWith(u8, args[0], "--")) {
-        result.target_date = try date.parse(args[0]);
+        result.target_date = try date.parseReference(args[0]);
         index = 1;
     }
     if (index == args.len) {
@@ -878,7 +843,7 @@ fn parseScheduleCommand(args: []const []const u8) !ScheduleCommand {
             result.weeks = try std.fmt.parseInt(u8, value, 10);
             if (result.weeks < 1 or result.weeks > 52) return error.InvalidWeekCount;
         } else if (std.mem.eql(u8, flag, "--from")) {
-            result.start = try date.parse(value);
+            result.start = try date.parseReference(value);
         } else {
             return error.UnknownFlag;
         }
@@ -899,7 +864,7 @@ fn parseCompareCommand(args: []const []const u8) !CompareCommand {
             result.weeks = try std.fmt.parseInt(u8, value, 10);
             if (result.weeks < 1 or result.weeks > 52) return error.InvalidWeekCount;
         } else if (std.mem.eql(u8, flag, "--ending")) {
-            result.ending = try date.parse(value);
+            result.ending = try date.parseReference(value);
         } else {
             return error.UnknownFlag;
         }
@@ -928,7 +893,7 @@ fn parseExportCommand(args: []const []const u8) !ExportCommand {
             result.weeks = try std.fmt.parseInt(u8, value, 10);
             if (result.weeks < 1 or result.weeks > 52) return error.InvalidWeekCount;
         } else if (std.mem.eql(u8, flag, "--ending")) {
-            result.ending = try date.parse(value);
+            result.ending = try date.parseReference(value);
         } else {
             return error.UnknownFlag;
         }
@@ -966,9 +931,8 @@ fn printUsage(writer: *Io.Writer) !void {
         \\runningman — daily running plan and append-only training log
         \\
         \\Usage:
+        \\  runningman [--data PATH] [DATE_REFERENCE]
         \\  runningman [--data PATH] init [START_MONDAY]
-        \\  runningman [--data PATH] today [DATE]
-        \\  runningman [--data PATH] tomorrow
         \\  runningman [--data PATH] schedule [--weeks N] [--from DATE]
         \\  runningman [--data PATH] check-in [DATE] [--sleep 0-100 --readiness 0-100]
         \\  runningman [--data PATH] log [DATE]
@@ -982,7 +946,7 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman [--data PATH] plan generate RUNNER_PROFILE.json --output PROPOSED_PLAN.json [--policy POLICY.json] [--evidence EVIDENCE_LEDGER.json]
         \\  runningman [--data PATH] plan preview REVISION.json
         \\  runningman [--data PATH] plan apply REVISION.json
-        \\  runningman [--data PATH] plan explain [DATE|today|tomorrow|REVISION.json [DATE|today|tomorrow]]
+        \\  runningman [--data PATH] plan explain [DATE_REFERENCE|REVISION.json [DATE_REFERENCE]]
         \\  runningman [--data PATH] review [--weeks N] [--ending DATE]
         \\  runningman [--data PATH] export [--format markdown|jsonl] [--weeks N] [--ending DATE]
         \\
@@ -992,6 +956,8 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  --distance KM  --duration MINUTES|MM:SS|HH:MM:SS  --avg-hr BPM
         \\  --rpe 1-10  --pain 0-10  --pain-location TEXT
         \\  --reason TEXT  --notes TEXT
+        \\
+        \\Date references accept YYYY-MM-DD, a day in the current month, today, or tomorrow.
         \\
         \\Default data file: runningman-data.jsonl
         \\
@@ -1157,7 +1123,7 @@ fn friendlyError(err: anyerror) []const u8 {
         error.GeneratedTaperMissingIntensity => "generated taper does not retain a quality session",
         error.PlanFileRequired => "plan preview/apply requires exactly one revision JSON file",
         error.UnknownPlanAction => "plan action must be generate, preview, apply, or explain",
-        error.InvalidPlanExplainCommand => "plan explain accepts no arguments, DATE, today, tomorrow, REVISION.json, or REVISION.json DATE|today|tomorrow",
+        error.InvalidPlanExplainCommand => "plan explain accepts no arguments, DATE_REFERENCE, REVISION.json, or REVISION.json DATE_REFERENCE",
         error.PlanAlreadyPeriodized => "the latest schedule is already periodized",
         error.RevisionFileNotFound => "the revision JSON file was not found",
         error.InvalidRevisionFile => "the revision file is not valid JSON in the expected format",
@@ -1194,16 +1160,4 @@ fn friendlyError(err: anyerror) []const u8 {
         error.UnexpectedArgument => "too many arguments",
         else => @errorName(err),
     };
-}
-
-test "plan explain recognizes date selectors" {
-    const current_date: date.Date = .{ .year = 2026, .month = 7, .day = 21 };
-    const explicit_date = (try parsePlanExplainDateFrom("2026-07-21", current_date)).?;
-    try std.testing.expectEqual(date.Date{ .year = 2026, .month = 7, .day = 21 }, explicit_date);
-    try std.testing.expectEqual(current_date, (try parsePlanExplainDateFrom("today", current_date)).?);
-    try std.testing.expectEqual(
-        date.Date{ .year = 2026, .month = 7, .day = 22 },
-        (try parsePlanExplainDateFrom("tomorrow", current_date)).?,
-    );
-    try std.testing.expect((try parsePlanExplainDateFrom("proposed-plan.json", current_date)) == null);
 }

@@ -8,7 +8,9 @@ trap 'rm -rf "$temporary_directory"' EXIT
 data_file="$temporary_directory/training.jsonl"
 
 "$binary" help > "$temporary_directory/help.txt"
-grep -Fq "runningman [--data PATH] tomorrow" "$temporary_directory/help.txt"
+grep -Fq "runningman [--data PATH] [DATE_REFERENCE]" "$temporary_directory/help.txt"
+grep -Fq "Date references accept YYYY-MM-DD, a day in the current month, today, or tomorrow." \
+    "$temporary_directory/help.txt"
 
 "$binary" profile validate examples/runner-profile.json > "$temporary_directory/profile.txt"
 grep -q "Runner profile is valid: example-half-marathon-runner" "$temporary_directory/profile.txt"
@@ -170,9 +172,16 @@ grep -q '"plan_provenance":{' "$generated_data_file"
 grep -q '"generator_version":"runningman-phase-1-v1"' "$generated_data_file"
 grep -q '"decision":{"recipe_id":"aerobic-intervals"' "$generated_data_file"
 grep -q '"plan_weeks":\[' "$generated_data_file"
-"$binary" --data "$generated_data_file" today 2026-07-21 \
+"$binary" --data "$generated_data_file" 2026-07-21 \
     > "$temporary_directory/generated-reload.txt"
 grep -q "Schedule #2" "$temporary_directory/generated-reload.txt"
+if "$binary" --data "$generated_data_file" today 2026-07-21 \
+    > /dev/null 2> "$temporary_directory/legacy-today-date-error.txt"
+then
+    echo "expected the legacy 'today DATE' form to be rejected" >&2
+    exit 1
+fi
+grep -q "too many arguments" "$temporary_directory/legacy-today-date-error.txt"
 line_count_before=$(wc -l < "$generated_data_file" | tr -d ' ')
 "$binary" --data "$generated_data_file" plan explain \
     > "$temporary_directory/schedule-explanation.txt"
@@ -229,10 +238,10 @@ grep -q "workouts before effective_from must exactly match" \
     > "$temporary_directory/future-apply.txt"
 grep -q "Applied schedule #3, effective 2026-07-27" \
     "$temporary_directory/future-apply.txt"
-"$binary" --data "$generated_data_file" today 2026-07-26 \
+"$binary" --data "$generated_data_file" 2026-07-26 \
     > "$temporary_directory/future-prefix.txt"
 grep -q "Schedule #2" "$temporary_directory/future-prefix.txt"
-"$binary" --data "$generated_data_file" today 2026-07-27 \
+"$binary" --data "$generated_data_file" 2026-07-27 \
     > "$temporary_directory/future-effective.txt"
 grep -q "Schedule #3" "$temporary_directory/future-effective.txt"
 
@@ -251,7 +260,7 @@ done
 test "$(sed -n '/"workouts": \[/,$p' "$temporary_directory/runner-profile-8-week-3-day-plan.json" | grep -c '"date"')" = 56
 test "$(sed -n '/"workouts": \[/,$p' "$temporary_directory/runner-profile-24-week-6-day-plan.json" | grep -c '"date"')" = 168
 
-"$binary" --data "$data_file" today 2026-07-20 > "$temporary_directory/today.txt"
+"$binary" --data "$data_file" 2026-07-20 > "$temporary_directory/today.txt"
 grep -q "Core easy aerobic run" "$temporary_directory/today.txt"
 grep -q "6.0 km at 6:15–7:00/km (37:30–42:00)" "$temporary_directory/today.txt"
 grep -q "Expected total time: 37:30–42:00" "$temporary_directory/today.txt"
@@ -311,7 +320,7 @@ if "$binary" --data "$data_file" plan preview "$revision_file" >/dev/null 2>&1; 
     exit 1
 fi
 
-"$binary" --data "$data_file" today 2026-10-18 > "$temporary_directory/revised-day.txt"
+"$binary" --data "$data_file" 2026-10-18 > "$temporary_directory/revised-day.txt"
 grep -q "Half marathon. Start controlled" "$temporary_directory/revised-day.txt"
 grep -q "Schedule #2" "$temporary_directory/revised-day.txt"
 
@@ -323,7 +332,7 @@ grep -q "Schedule #2" "$temporary_directory/revised-day.txt"
 grep -q "supersedes activity" "$temporary_directory/post-revision-correction.txt"
 tail -n 1 "$data_file" | grep -q '"schedule_id":1,"workout_id":13'
 
-"$binary" --data "$data_file" today 2026-10-05 > "$temporary_directory/taper-week.txt"
+"$binary" --data "$data_file" 2026-10-05 > "$temporary_directory/taper-week.txt"
 grep -q "taper phase" "$temporary_directory/taper-week.txt"
 
 "$binary" --data "$data_file" check-in 2026-07-21 \
