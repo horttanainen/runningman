@@ -175,23 +175,29 @@ pub fn load(
 }
 
 pub fn validate(policy: Policy, ledger: evidence_ledger.Ledger) !void {
+    try validateSnapshot(policy);
+    if (!std.mem.eql(u8, policy.evidence_ledger_id, ledger.ledger_id)) {
+        return error.TrainingPolicyEvidenceLedgerMismatch;
+    }
+    try validateRuleEvidence(policy, ledger);
+    try validateEvidenceBacklinks(policy, ledger);
+}
+
+pub fn validateSnapshot(policy: Policy) !void {
     if (policy.schema_version != 1) return error.UnsupportedTrainingPolicySchema;
     if (policy.policy_id.len == 0 or policy.policy_version == 0) {
         return error.TrainingPolicyIdentityRequired;
     }
-    if (!std.mem.eql(u8, policy.evidence_ledger_id, ledger.ledger_id)) {
-        return error.TrainingPolicyEvidenceLedgerMismatch;
-    }
+    if (policy.evidence_ledger_id.len == 0) return error.TrainingPolicyEvidenceLedgerRequired;
     if (policy.rules.len == 0) return error.TrainingPolicyNeedsRules;
 
-    try validateRules(policy, ledger);
+    try validateRuleStructure(policy);
     try validateSupport(policy.support);
     try validatePeriodization(policy.periodization);
     try validateBaselineAssessment(policy.baseline_assessment);
     try validateProgression(policy);
     try validateWorkouts(policy);
     try validateRuleReferences(policy);
-    try validateEvidenceBacklinks(policy, ledger);
 }
 
 pub fn printSummary(writer: *Io.Writer, policy: Policy) !void {
@@ -222,7 +228,7 @@ pub fn findRule(policy: Policy, rule_id: []const u8) ?Rule {
     return null;
 }
 
-fn validateRules(policy: Policy, ledger: evidence_ledger.Ledger) !void {
+fn validateRuleStructure(policy: Policy) !void {
     for (policy.rules, 0..) |rule, index| {
         if (rule.rule_id.len == 0 or rule.category.len == 0 or rule.summary.len == 0) {
             return error.IncompleteTrainingPolicyRule;
@@ -242,6 +248,13 @@ fn validateRules(policy: Policy, ledger: evidence_ledger.Ledger) !void {
                     return error.DuplicateTrainingPolicyEvidenceId;
                 }
             }
+        }
+    }
+}
+
+fn validateRuleEvidence(policy: Policy, ledger: evidence_ledger.Ledger) !void {
+    for (policy.rules) |rule| {
+        for (rule.evidence_ids) |evidence_id| {
             if (findEvidence(ledger, evidence_id) == null) {
                 return error.UnknownTrainingPolicyEvidenceId;
             }

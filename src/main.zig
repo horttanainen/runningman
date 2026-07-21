@@ -8,6 +8,7 @@ const model = @import("model.zig");
 const plan_generator = @import("plan_generator.zig");
 const plan_provenance = @import("plan_provenance.zig");
 const plan_revision = @import("plan_revision.zig");
+const plan_validator = @import("plan_validator.zig");
 const report = @import("report.zig");
 const runner_profile = @import("runner_profile.zig");
 const schedule = @import("schedule.zig");
@@ -470,7 +471,15 @@ fn commandPlan(
 
     if (args.len != 2) return error.PlanFileRequired;
     const revision = try plan_revision.load(allocator, io, args[1]);
+    try plan_revision.validate(storage, revision);
+    const validation = try plan_validator.validateEmbedded(allocator, revision);
     if (std.mem.eql(u8, action, "preview")) {
+        try writer.print(
+            "Validation passed\n" ++
+                "  Embedded profile, policy, provenance, and assessment are consistent.\n" ++
+                "  {d} weeks and {d} workouts satisfy {d} policy rules and plan invariants.\n\n",
+            .{ validation.weeks, validation.workouts, validation.policy_rules },
+        );
         try plan_revision.printPreview(writer, storage, revision);
     } else if (std.mem.eql(u8, action, "apply")) {
         const events = try plan_revision.createEvents(
@@ -984,6 +993,7 @@ fn friendlyError(err: anyerror) []const u8 {
         error.InvalidTrainingPolicyFile => "the training policy is not valid JSON in the expected format",
         error.UnsupportedTrainingPolicySchema => "training policy schema_version must be 1",
         error.TrainingPolicyIdentityRequired => "training policy needs a non-empty policy_id and positive policy_version",
+        error.TrainingPolicyEvidenceLedgerRequired => "training policy needs a non-empty evidence_ledger_id",
         error.TrainingPolicyEvidenceLedgerMismatch => "the policy and evidence ledger IDs do not match",
         error.TrainingPolicyNeedsRules => "the training policy needs at least one rule",
         error.IncompleteTrainingPolicyRule => "every policy rule needs an ID, category, and summary",
@@ -1083,6 +1093,9 @@ fn friendlyError(err: anyerror) []const u8 {
         error.EmptyRevision => "the revision contains no workouts",
         error.RevisionWorkoutDecisionRequired => "every revised workout must include its recipe and allocation decision",
         error.RevisionBeforePlanStart => "the revision cannot begin before the plan",
+        error.RevisionPlanStartMismatch => "the proposal plan start does not match the schedule being revised",
+        error.RevisionEffectiveAfterRace => "the revision cannot become effective after race day",
+        error.RevisionHistoricalWorkoutChanged => "workouts before effective_from must exactly match the current schedule",
         error.RevisionDatesNotConsecutive => "the revision must contain one entry for every consecutive day",
         error.RevisionRaceDateRequired => "the schedule needs a race date",
         error.RevisionMustEndOnRaceDate => "the complete remaining program must end on race day",

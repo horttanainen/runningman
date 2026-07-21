@@ -23,7 +23,10 @@
   "properties": {
     "schema_version": { "const": 2 },
     "base_schedule_id": { "type": "integer", "minimum": 1 },
-    "effective_from": { "$ref": "#/$defs/date" },
+    "effective_from": {
+      "description": "First date changed by this revision; earlier workouts are validation context and must match the parent schedule.",
+      "$ref": "#/$defs/date"
+    },
     "reason": { "$ref": "#/$defs/non_empty_string" },
     "name": { "type": "string" },
     "goal": { "type": "string" },
@@ -39,6 +42,7 @@
       "items": { "$ref": "#/$defs/week" }
     },
     "workouts": {
+      "description": "Complete consecutive plan from the embedded runner profile start date through race day.",
       "type": "array",
       "minItems": 1,
       "items": { "$ref": "#/$defs/workout" }

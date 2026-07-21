@@ -347,7 +347,8 @@ pub fn printMarkdown(
             "preserve the generated `provenance` and `assessment`, include the complete `weeks` macrocycle " ++
             "with a structured `decision` for every week, target the latest schedule with `base_schedule_id`, " ++
             "state `effective_from` and `reason`, and contain `workouts` for every consecutive date " ++
-            "from the effective date through race day. Each workout needs `date`, `phase`, `kind`, " ++
+            "from the embedded profile's plan start through race day. Workouts before `effective_from` " ++
+            "must remain unchanged. Each workout needs `date`, `phase`, `kind`, " ++
             "`intensity`, `details`, `segments`, and a structured `decision`. Segment pace values are integer seconds per km. " ++
             "A distance segment uses `kind`, `label`, `distance_km`, " ++
             "`pace_fast_seconds_per_km`, and `pace_slow_seconds_per_km`; a timed segment uses " ++

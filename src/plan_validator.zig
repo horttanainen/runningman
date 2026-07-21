@@ -15,6 +15,36 @@ const WeekSummary = struct {
     quality_sessions: u8,
 };
 
+pub const ValidationReport = struct {
+    weeks: usize,
+    workouts: usize,
+    policy_rules: usize,
+};
+
+pub fn validateEmbedded(
+    allocator: std.mem.Allocator,
+    revision: plan_revision.RevisionFile,
+) !ValidationReport {
+    const provenance = revision.provenance;
+    try training_policy.validateSnapshot(provenance.training_policy);
+    const result = try assessment.assess(
+        provenance.runner_profile,
+        provenance.training_policy,
+    );
+    try validate(
+        allocator,
+        provenance.runner_profile,
+        provenance.training_policy,
+        result,
+        revision,
+    );
+    return .{
+        .weeks = revision.weeks.len,
+        .workouts = revision.workouts.len,
+        .policy_rules = provenance.training_policy.rules.len,
+    };
+}
+
 pub fn validate(
     allocator: std.mem.Allocator,
     profile: runner_profile.RunnerProfile,
@@ -24,7 +54,9 @@ pub fn validate(
 ) !void {
     const profile_summary = try runner_profile.validate(profile);
     if (revision.schema_version != 2) return error.UnsupportedRevisionSchema;
-    if (!std.mem.eql(u8, revision.effective_from, profile.plan_start_date.value)) {
+    if (revision.workouts.len == 0 or
+        !std.mem.eql(u8, revision.workouts[0].date, profile.plan_start_date.value))
+    {
         return error.GeneratedPlanStartMismatch;
     }
     if (!std.mem.eql(u8, revision.race_date, profile.goal.race_date.value)) {

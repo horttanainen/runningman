@@ -370,15 +370,23 @@ proposal files are rejected.
 
 The easiest starting point for a revised program is a newly generated complete
 proposal. It must contain one workout or rest entry for every consecutive date
-from `effective_from` through the schedule's race date. A segment can prescribe
-`distance_km` with a fast/slow pace range, or `duration_seconds`; repetitions
-and recovery are represented with `repetitions` and `recovery_seconds`.
+from the embedded runner profile's plan start through race day. `effective_from`
+marks the first workout changed by the revision. Earlier workouts are retained
+as validation context and must exactly match the current schedule. A segment
+can prescribe `distance_km` with a fast/slow pace range, or `duration_seconds`;
+repetitions and recovery are represented with `repetitions` and
+`recovery_seconds`.
+
+Preview and apply both recompute the embedded assessment and run the complete
+plan through the independent validator. Editing a prescription without its
+decision record, changing historical context, or violating progression,
+spacing, volume, phase, or taper rules causes the proposal to be rejected.
 
 Applying creates a new immutable schedule snapshot. Dates before
-`effective_from` are copied into that snapshot, while the full remaining
-program comes from the revision file. Previous schedules remain present, and
-recorded activities remain linked to the exact schedule and workout that were
-in effect when they were logged.
+`effective_from` are copied from the parent schedule, while later dates come
+from the revision file. Previous schedules remain present, and recorded
+activities remain linked to the exact schedule and workout that were in effect
+when they were logged.
 
 ## Data model
 

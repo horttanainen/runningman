@@ -498,6 +498,7 @@ Review gate: inspect several complete schedules, including boundary cases.
 ### Increment 4: provenance, explanation, and evaluation
 
 - [x] Preserve policy and input provenance (Increment 4.1).
+- [x] Revalidate edited proposals before preview and apply (Increment 4.2).
 - Add `plan explain`.
 - Expand review export.
 - Complete the synthetic-profile and invariant-test suite.
@@ -528,7 +529,7 @@ Phase 1 is complete when:
 - representative three-to-six-day plans have been manually reviewed;
 - generation never writes data before explicit preview and apply; and
 - `./check.sh` exercises profile validation, generation, invariants, CLI flow,
-  and backward compatibility.
+  v2 proposal enforcement, and historical event loading.
 
 ## Decisions requested before implementation
 

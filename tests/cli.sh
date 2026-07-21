@@ -65,6 +65,9 @@ grep -q '"recipe_id": "race-week-sharpening"' "$generated_plan"
 cmp "$generated_plan" "$generated_plan_again"
 "$binary" --data "$generated_data_file" plan preview "$generated_plan" \
     > "$temporary_directory/generated-preview.txt"
+grep -q "Validation passed" "$temporary_directory/generated-preview.txt"
+grep -q "Embedded profile, policy, provenance, and assessment are consistent" \
+    "$temporary_directory/generated-preview.txt"
 grep -q "Expected total time" "$temporary_directory/generated-preview.txt"
 grep -q "Aerobic intervals: 3 repetitions totalling 3.0 km" "$temporary_directory/generated-preview.txt"
 grep -q "3 × 1.0 km" "$temporary_directory/generated-preview.txt"
@@ -91,6 +94,57 @@ then
     exit 1
 fi
 grep -q "revision file schema_version must be 2" "$temporary_directory/legacy-plan-error.txt"
+
+tampered_distance_plan="$temporary_directory/tampered-distance-plan.json"
+sed 's/"allocated_distance_km": 6,/"allocated_distance_km": 6.5,/' \
+    "$generated_plan" > "$tampered_distance_plan"
+line_count_before=$(wc -l < "$generated_data_file" | tr -d ' ')
+if "$binary" --data "$generated_data_file" plan apply "$tampered_distance_plan" \
+    > /dev/null 2> "$temporary_directory/tampered-distance-error.txt"
+then
+    echo "expected a workout distance inconsistent with its decision to be rejected" >&2
+    exit 1
+fi
+grep -q "workout decision records the wrong distance" \
+    "$temporary_directory/tampered-distance-error.txt"
+line_count_after=$(wc -l < "$generated_data_file" | tr -d ' ')
+test "$line_count_before" = "$line_count_after"
+
+tampered_assessment_plan="$temporary_directory/tampered-assessment-plan.json"
+sed 's/"recommended_target_seconds": 7200/"recommended_target_seconds": 7100/g' \
+    "$generated_plan" > "$tampered_assessment_plan"
+if "$binary" --data "$generated_data_file" plan preview "$tampered_assessment_plan" \
+    > /dev/null 2> "$temporary_directory/tampered-assessment-error.txt"
+then
+    echo "expected an edited assessment to be rejected" >&2
+    exit 1
+fi
+grep -q "generated assessment does not match" \
+    "$temporary_directory/tampered-assessment-error.txt"
+
+tampered_volume_plan="$temporary_directory/tampered-volume-plan.json"
+sed 's/"maximum_peak_relative_to_baseline": 1.5/"maximum_peak_relative_to_baseline": 1.0/' \
+    "$generated_plan" > "$tampered_volume_plan"
+if "$binary" --data "$generated_data_file" plan preview "$tampered_volume_plan" \
+    > /dev/null 2> "$temporary_directory/tampered-volume-error.txt"
+then
+    echo "expected a proposal exceeding its embedded volume policy to be rejected" >&2
+    exit 1
+fi
+grep -q "weekly volume exceeds" "$temporary_directory/tampered-volume-error.txt"
+
+tampered_spacing_plan="$temporary_directory/tampered-spacing-plan.json"
+sed 's/"minimum_easy_or_rest_days_between_demanding_sessions": 1/"minimum_easy_or_rest_days_between_demanding_sessions": 3/' \
+    "$generated_plan" > "$tampered_spacing_plan"
+if "$binary" --data "$generated_data_file" plan preview "$tampered_spacing_plan" \
+    > /dev/null 2> "$temporary_directory/tampered-spacing-error.txt"
+then
+    echo "expected a proposal violating demanding-session spacing to be rejected" >&2
+    exit 1
+fi
+grep -q "demanding sessions do not have enough" \
+    "$temporary_directory/tampered-spacing-error.txt"
+
 "$binary" --data "$generated_data_file" plan apply "$generated_plan" \
     > "$temporary_directory/generated-apply.txt"
 grep -q "Applied schedule #2" "$temporary_directory/generated-apply.txt"
@@ -100,6 +154,42 @@ grep -q '"decision":{"recipe_id":"aerobic-intervals"' "$generated_data_file"
 "$binary" --data "$generated_data_file" today 2026-07-21 \
     > "$temporary_directory/generated-reload.txt"
 grep -q "Schedule #2" "$temporary_directory/generated-reload.txt"
+
+future_plan_source="$temporary_directory/future-plan-source.json"
+future_plan="$temporary_directory/future-plan.json"
+"$binary" --data "$generated_data_file" plan generate examples/runner-profile.json \
+    --output "$future_plan_source" >/dev/null
+sed 's/"effective_from": "2026-07-20"/"effective_from": "2026-07-27"/' \
+    "$future_plan_source" > "$future_plan"
+"$binary" --data "$generated_data_file" plan preview "$future_plan" \
+    > "$temporary_directory/future-preview.txt"
+grep -q "Replacement span: 2026-07-27 through 2026-10-18 (84 daily entries)" \
+    "$temporary_directory/future-preview.txt"
+grep -q "Validation context: complete 91-day plan from 2026-07-20" \
+    "$temporary_directory/future-preview.txt"
+
+tampered_history_plan="$temporary_directory/tampered-history-plan.json"
+sed 's/Easy aerobic run: 6.0 km/Edited historical run: 6.0 km/' \
+    "$future_plan" > "$tampered_history_plan"
+if "$binary" --data "$generated_data_file" plan preview "$tampered_history_plan" \
+    > /dev/null 2> "$temporary_directory/tampered-history-error.txt"
+then
+    echo "expected a pre-effective workout edit to be rejected" >&2
+    exit 1
+fi
+grep -q "workouts before effective_from must exactly match" \
+    "$temporary_directory/tampered-history-error.txt"
+
+"$binary" --data "$generated_data_file" plan apply "$future_plan" \
+    > "$temporary_directory/future-apply.txt"
+grep -q "Applied schedule #3, effective 2026-07-27" \
+    "$temporary_directory/future-apply.txt"
+"$binary" --data "$generated_data_file" today 2026-07-26 \
+    > "$temporary_directory/future-prefix.txt"
+grep -q "Schedule #2" "$temporary_directory/future-prefix.txt"
+"$binary" --data "$generated_data_file" today 2026-07-27 \
+    > "$temporary_directory/future-effective.txt"
+grep -q "Schedule #3" "$temporary_directory/future-effective.txt"
 
 for fixture in \
     tests/fixtures/runner-profile-8-week-3-day.json \

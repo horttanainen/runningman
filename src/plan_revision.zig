@@ -83,13 +83,17 @@ pub fn validate(storage: *const store.Store, revision: RevisionFile) !void {
 
     const parent = storage.schedules.get(revision.base_schedule_id) orelse
         return error.StaleRevision;
-    const parent_start = try date.parse(parent.start_date);
+    const plan_start_text = revision.provenance.runner_profile.plan_start_date.value;
+    if (!std.mem.eql(u8, parent.start_date, plan_start_text)) {
+        return error.RevisionPlanStartMismatch;
+    }
+    const plan_start = try date.parse(plan_start_text);
     const effective_from = try date.parse(revision.effective_from);
-    if (date.compare(effective_from, parent_start) == .lt) {
+    if (date.compare(effective_from, plan_start) == .lt) {
         return error.RevisionBeforePlanStart;
     }
 
-    var expected_date = effective_from;
+    var expected_date = plan_start;
     for (revision.workouts) |proposed| {
         const proposed_date = try date.parse(proposed.date);
         if (date.compare(proposed_date, expected_date) != .eq) {
@@ -97,6 +101,15 @@ pub fn validate(storage: *const store.Store, revision: RevisionFile) !void {
         }
         if (proposed.decision == null) return error.RevisionWorkoutDecisionRequired;
         try validateWorkout(proposed);
+        if (date.compare(proposed_date, effective_from) == .lt) {
+            const original = store.workoutForDate(storage, parent.id, proposed_date) orelse
+                return error.IncompleteParentSchedule;
+            if (!samePrescription(original, proposed) or
+                !sameWorkoutDecision(original.decision, proposed.decision))
+            {
+                return error.RevisionHistoricalWorkoutChanged;
+            }
+        }
         expected_date = date.addDays(expected_date, 1);
     }
 
@@ -106,6 +119,9 @@ pub fn validate(storage: *const store.Store, revision: RevisionFile) !void {
         revision.race_date;
     if (race_date_text.len == 0) return error.RevisionRaceDateRequired;
     const race_date = try date.parse(race_date_text);
+    if (date.compare(effective_from, race_date) == .gt) {
+        return error.RevisionEffectiveAfterRace;
+    }
     const final_date = try date.parse(revision.workouts[revision.workouts.len - 1].date);
     if (date.compare(final_date, race_date) != .eq) {
         return error.RevisionMustEndOnRaceDate;
@@ -165,6 +181,7 @@ pub fn createEvents(
 
     for (revision.workouts) |proposed| {
         const workout_date = try date.parse(proposed.date);
+        if (date.compare(workout_date, effective_from) == .lt) continue;
         const days_from_start = date.daysBetween(start, workout_date);
         if (days_from_start < 0) return error.RevisionBeforePlanStart;
         const range = proposedDistanceRange(proposed);
@@ -205,12 +222,18 @@ pub fn printPreview(
             revision.reason,
         },
     );
+    const plan_start = try date.parse(revision.workouts[0].date);
+    const effective_from = try date.parse(revision.effective_from);
+    const effective_index: usize = @intCast(date.daysBetween(plan_start, effective_from));
     try writer.print(
-        "Replacement span: {s} through {s} ({d} daily entries)\n\n",
+        "Replacement span: {s} through {s} ({d} daily entries)\n" ++
+            "Validation context: complete {d}-day plan from {s}\n\n",
         .{
-            revision.workouts[0].date,
+            revision.effective_from,
             revision.workouts[revision.workouts.len - 1].date,
+            revision.workouts.len - effective_index,
             revision.workouts.len,
+            revision.workouts[0].date,
         },
     );
 
@@ -288,6 +311,7 @@ pub fn printPreview(
     const start = try date.parse(parent.start_date);
     for (revision.workouts) |proposed| {
         const proposed_date = try date.parse(proposed.date);
+        if (date.compare(proposed_date, effective_from) == .lt) continue;
         const week: u8 = @intCast(@divFloor(date.daysBetween(start, proposed_date), 7) + 1);
         if (previous_week == null or previous_week.? != week) {
             try writer.print("Week {d} — {s}\n", .{ week, proposed.phase });
@@ -446,6 +470,33 @@ fn sameSegment(left: model.Segment, right: model.Segment) bool {
         left.pace_slow_seconds_per_km == right.pace_slow_seconds_per_km and
         left.recovery_seconds == right.recovery_seconds and
         std.mem.eql(u8, left.notes, right.notes);
+}
+
+fn sameWorkoutDecision(
+    left: ?plan_provenance.WorkoutDecision,
+    right: ?plan_provenance.WorkoutDecision,
+) bool {
+    if (left == null or right == null) return left == null and right == null;
+    const left_value = left.?;
+    const right_value = right.?;
+    if (!std.mem.eql(u8, left_value.recipe_id, right_value.recipe_id) or
+        left_value.rule_ids.len != right_value.rule_ids.len or
+        left_value.allocation_role != right_value.allocation_role or
+        left_value.distance_method != right_value.distance_method or
+        left_value.pace_method != right_value.pace_method or
+        left_value.week_target_core_distance_km != right_value.week_target_core_distance_km or
+        left_value.allocated_distance_km != right_value.allocated_distance_km or
+        left_value.training_pace_anchor_seconds != right_value.training_pace_anchor_seconds or
+        left_value.scheduled_weekday != right_value.scheduled_weekday or
+        left_value.preferred_weekday != right_value.preferred_weekday or
+        left_value.preference_honored != right_value.preference_honored)
+    {
+        return false;
+    }
+    for (left_value.rule_ids, right_value.rule_ids) |left_rule, right_rule| {
+        if (!std.mem.eql(u8, left_rule, right_rule)) return false;
+    }
+    return true;
 }
 
 fn valueOrFallback(value: []const u8, fallback: []const u8) []const u8 {
