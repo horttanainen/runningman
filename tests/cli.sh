@@ -262,8 +262,12 @@ test "$(sed -n '/"workouts": \[/,$p' "$temporary_directory/runner-profile-24-wee
 
 "$binary" --data "$data_file" 2026-07-20 > "$temporary_directory/today.txt"
 grep -q "Core easy aerobic run" "$temporary_directory/today.txt"
-grep -q "6.0 km at 6:15–7:00/km (37:30–42:00)" "$temporary_directory/today.txt"
-grep -q "Expected total time: 37:30–42:00" "$temporary_directory/today.txt"
+grep -q "6.0 km at 6:15–7:00/km, 8.6–9.6 km/h (37:30–42:00)" \
+    "$temporary_directory/today.txt"
+if grep -q "Expected total time: 37:30–42:00" "$temporary_directory/today.txt"; then
+    echo "expected a single-segment workout not to repeat its duration" >&2
+    exit 1
+fi
 
 printf 'completed\n8.2\n52:00\n139\n3\n0\nComfortable\n' |
     "$binary" --data "$data_file" log 2026-07-22 > "$temporary_directory/interactive.txt"
@@ -272,7 +276,8 @@ grep -q "Recorded completed" "$temporary_directory/interactive.txt"
 "$binary" --data "$data_file" schedule --weeks 4 --from 2026-07-20 > "$temporary_directory/schedule.txt"
 grep -q "Week 4" "$temporary_directory/schedule.txt"
 grep -q "2026-08-15 Saturday: long — 13.0 km" "$temporary_directory/schedule.txt"
-grep -q "Expected total time: 1:21:15–1:29:55" "$temporary_directory/schedule.txt"
+grep -q "13.0 km at 6:15–6:55/km, 8.7–9.6 km/h (1:21:15–1:29:55)" \
+    "$temporary_directory/schedule.txt"
 
 "$binary" --data "$data_file" log 2026-07-20 \
     --distance 7.1 \

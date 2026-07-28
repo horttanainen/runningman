@@ -84,14 +84,18 @@ pub fn generate(
     const pace_text = if (result.training_pace_anchor_seconds != null)
         try std.fmt.allocPrint(
             allocator,
-            "Easy {d}:{d:0>2}–{d}:{d:0>2}/km; race anchor {d}:{d:0>2}/km",
+            "Easy {d}:{d:0>2}–{d}:{d:0>2}/km, {d:.1}–{d:.1} km/h; " ++
+                "race anchor {d}:{d:0>2}/km, {d:.1} km/h",
             .{
                 paces.easy_fast / 60,
                 paces.easy_fast % 60,
                 paces.easy_slow / 60,
                 paces.easy_slow % 60,
+                speedForPace(paces.easy_slow),
+                speedForPace(paces.easy_fast),
                 paces.race_fast / 60,
                 paces.race_fast % 60,
+                speedForPace(paces.race_fast),
             },
         )
     else
@@ -855,6 +859,10 @@ fn derivePaces(result: assessment.Assessment, policy: training_policy.Policy) Pa
         .race_fast = if (race_pace > 5) race_pace - 5 else race_pace,
         .race_slow = race_pace + 5,
     };
+}
+
+fn speedForPace(seconds_per_km: u16) f64 {
+    return 3600.0 / @as(f64, @floatFromInt(seconds_per_km));
 }
 
 fn containsWeekday(values: []const runner_profile.Weekday, expected: runner_profile.Weekday) bool {

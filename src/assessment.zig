@@ -2,6 +2,7 @@ const std = @import("std");
 const date = @import("date.zig");
 const runner_profile = @import("runner_profile.zig");
 const training_policy = @import("training_policy.zig");
+const workout = @import("workout.zig");
 
 const Io = std.Io;
 
@@ -358,20 +359,16 @@ fn printEffortGuidance(
             policy.support.race_distance_km;
         const pace = secondsFromFloat(pace_seconds);
         try writer.writeAll("  Supported half-marathon pace anchor: ");
-        try printPace(writer, pace);
-        try writer.writeAll("/km\n  Indicative easy pace: ");
-        try printPace(
+        try workout.printPaceRange(writer, pace, pace);
+        try writer.writeAll("\n  Indicative easy pace: ");
+        try workout.printPaceRange(
             writer,
             pace +
                 policy.baseline_assessment.easy_pace_minimum_seconds_slower_per_km,
-        );
-        try writer.writeAll("–");
-        try printPace(
-            writer,
             pace +
                 policy.baseline_assessment.easy_pace_maximum_seconds_slower_per_km,
         );
-        try writer.writeAll("/km\n");
+        try writer.writeByte('\n');
         if (result.feasibility == .aspirational or result.feasibility == .infeasible) {
             try writer.writeAll(
                 "  Aspirational pace is not used as the training anchor.\n",
@@ -631,13 +628,6 @@ fn printDuration(writer: *Io.Writer, total_seconds: u32) !void {
     } else {
         try writer.print("{d}:{d:0>2}", .{ minutes, seconds });
     }
-}
-
-fn printPace(writer: *Io.Writer, total_seconds: u32) !void {
-    try writer.print(
-        "{d}:{d:0>2}",
-        .{ total_seconds / 60, total_seconds % 60 },
-    );
 }
 
 fn parseTestProfile(allocator: std.mem.Allocator) !runner_profile.RunnerProfile {

@@ -79,11 +79,11 @@ fn createPeriodizedEvents(
         .start_date = start_text,
         .name = initial_name,
         .reason = reason,
-        .goal = "Run the half marathon in approximately 2:00 (about 5:41 min/km), adjusting the remaining plan from weekly evidence.",
+        .goal = "Run the half marathon in approximately 2:00 (about 5:41 min/km, 10.6 km/h), adjusting the remaining plan from weekly evidence.",
         .baseline = "Comfortable 10–15 km runs; recent 10K 53:00 at very hard effort.",
         .availability = "Four core runs each week plus one optional recovery run; two full rest days.",
         .intensity_guidance = "Most running stays easy. Foundation uses one hard session; build and race-specific phases add controlled half-marathon or threshold work, separated by easy or rest days.",
-        .pace_profile = "Recovery 6:35–7:20/km; easy 6:15–7:00/km; long 6:15–6:55/km; steady 5:50–6:10/km; half-marathon effort 5:38–5:48/km; tempo 5:25–5:40/km; short intervals 5:00–5:15/km.",
+        .pace_profile = "Recovery 6:35–7:20/km, 8.2–9.1 km/h; easy 6:15–7:00/km, 8.6–9.6 km/h; long 6:15–6:55/km, 8.7–9.6 km/h; steady 5:50–6:10/km, 9.7–10.3 km/h; half-marathon effort 5:38–5:48/km, 10.3–10.7 km/h; tempo 5:25–5:40/km, 10.6–11.1 km/h; short intervals 5:00–5:15/km, 11.4–12.0 km/h.",
         .race_date = race_text,
         .source = "Periodized 13-week half-marathon plan approved by the user.",
         .recorded_at = recorded_at,
@@ -275,7 +275,7 @@ fn raceWeekWorkout(
         3 => distanceWorkout(allocator, common, "easy", "Very easy", 4, recovery_fast, recovery_slow, "Short relaxed race-week run."),
         4 => restWorkout(allocator, common, "Full rest."),
         5 => distanceWorkout(allocator, common, "shakeout", "Very easy", 2, recovery_fast, recovery_slow, "Optional 2 km shakeout; rest instead if preferred."),
-        6 => distanceWorkout(allocator, common, "race", "Target approximately 5:41/km", 21.0975, half_marathon_fast, half_marathon_slow, "Half marathon race. Start controlled and use the two-hour pace as a target, not a demand."),
+        6 => distanceWorkout(allocator, common, "race", "Target approximately 5:41/km, 10.6 km/h", 21.0975, half_marathon_fast, half_marathon_slow, "Half marathon race. Start controlled and use the two-hour pace as a target, not a demand."),
         else => unreachable,
     };
 }

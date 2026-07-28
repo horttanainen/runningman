@@ -60,7 +60,13 @@ pub fn printDetails(writer: *Io.Writer, value: model.Workout, indent: []const u8
     }
 
     const estimate = durationEstimate(value.segments);
-    if (value.segments.len > 0 and estimate.complete and estimate.maximum_seconds > 0) {
+    const duration_is_already_shown = value.segments.len == 1 and
+        value.segments[0].repetitions == 1;
+    if (!duration_is_already_shown and
+        value.segments.len > 0 and
+        estimate.complete and
+        estimate.maximum_seconds > 0)
+    {
         if (value.distance_min_km != null and value.distance_min_km.? == 0 and
             value.distance_max_km != null and value.distance_max_km.? > 0)
         {
@@ -121,13 +127,19 @@ pub fn printSegmentPrescription(writer: *Io.Writer, segment: model.Segment) !voi
     if (segment.notes.len != 0) try writer.print(". {s}", .{segment.notes});
 }
 
-pub fn printPaceRange(writer: *Io.Writer, fast: u16, slow: u16) !void {
+pub fn printPaceRange(writer: *Io.Writer, fast: u32, slow: u32) !void {
     try printPace(writer, fast);
     if (fast != slow) {
         try writer.writeAll("–");
         try printPace(writer, slow);
     }
-    try writer.writeAll("/km");
+    try writer.writeAll("/km, ");
+    try printSpeed(writer, slow);
+    if (fast != slow) {
+        try writer.writeAll("–");
+        try printSpeed(writer, fast);
+    }
+    try writer.writeAll(" km/h");
 }
 
 pub fn printDurationRange(writer: *Io.Writer, minimum: u32, maximum: u32) !void {
@@ -149,11 +161,17 @@ pub fn printDuration(writer: *Io.Writer, seconds: u32) !void {
     }
 }
 
-fn printPace(writer: *Io.Writer, seconds_per_km: u16) !void {
+fn printPace(writer: *Io.Writer, seconds_per_km: u32) !void {
     try writer.print(
         "{d}:{d:0>2}",
         .{ seconds_per_km / 60, seconds_per_km % 60 },
     );
+}
+
+fn printSpeed(writer: *Io.Writer, seconds_per_km: u32) !void {
+    const kilometers_per_hour = 3600.0 /
+        @as(f64, @floatFromInt(seconds_per_km));
+    try writer.print("{d:.1}", .{kilometers_per_hour});
 }
 
 fn printDistance(writer: *Io.Writer, distance_km: f64) !void {
@@ -195,4 +213,50 @@ test "repeat duration includes recovery only between repetitions" {
     const estimate = segmentDurationEstimate(segment);
     try std.testing.expectEqual(@as(u32, 1680), estimate.minimum_seconds);
     try std.testing.expectEqual(@as(u32, 1740), estimate.maximum_seconds);
+}
+
+test "pace range includes speed range in ascending order" {
+    var output_buffer: [128]u8 = undefined;
+    var writer: Io.Writer = .fixed(&output_buffer);
+
+    try printPaceRange(&writer, 371, 416);
+
+    try std.testing.expectEqualStrings(
+        "6:11–6:56/km, 8.7–9.7 km/h",
+        writer.buffered(),
+    );
+}
+
+test "single segment details do not repeat the expected duration" {
+    const segments = [_]model.Segment{.{
+        .kind = "distance",
+        .label = "Run",
+        .distance_km = 6.5,
+        .pace_fast_seconds_per_km = 371,
+        .pace_slow_seconds_per_km = 416,
+    }};
+    const value: model.Workout = .{
+        .id = 1,
+        .schedule_id = 1,
+        .date = "2026-07-27",
+        .week = 1,
+        .day = "Monday",
+        .phase = "foundation",
+        .kind = "easy",
+        .intensity = "Easy",
+        .distance_min_km = 6.5,
+        .distance_max_km = 6.5,
+        .details = "Easy run.",
+        .segments = &segments,
+        .recorded_at = 0,
+    };
+    var output_buffer: [256]u8 = undefined;
+    var writer: Io.Writer = .fixed(&output_buffer);
+
+    try printDetails(&writer, value, "");
+
+    try std.testing.expectEqualStrings(
+        "- Run: 6.5 km at 6:11–6:56/km, 8.7–9.7 km/h (40:12–45:04)\n",
+        writer.buffered(),
+    );
 }
