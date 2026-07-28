@@ -366,6 +366,40 @@ has an activity, the editor file warns that running it will create an
 append-only correction. Reimporting the exact same image also produces a
 warning.
 
+## Import a Garmin cycling activity
+
+Export the original activity from Garmin Connect, or copy its `.fit` file from
+the Edge device, then pass either the FIT file or Garmin's ZIP unchanged:
+
+```sh
+./scripts/import-garmin garmin_activity_exports/23767860323.zip
+```
+
+The importer validates the FIT checksums and reads the cycling session summary
+locally. Date, timer duration, bicycle distance, and average heart rate populate
+dedicated activity fields. Available measurements such as maximum heart rate,
+speed, elevation, calories, cadence, power, training effect, temperature, laps,
+and heart-rate-zone durations are preserved in notes. GPS coordinates and
+device identifiers are not copied into the training log.
+
+As with the Polar importer, the measured values are shown first. Accepting them
+opens an editable `runningman log` command; saving and exiting records it.
+RPE and pain remain explicit placeholders for manual entry. If the ride replaced
+a planned run, change the generated outcome to `modified` and add a reason.
+
+Preview without recording, override the local FIT date, or select another data
+file:
+
+```sh
+./scripts/import-garmin --dry-run ACTIVITY.fit
+./scripts/import-garmin --date 2026-07-28 ACTIVITY.fit
+./scripts/import-garmin --data ~/training/running.jsonl ACTIVITY.zip
+```
+
+The source FIT SHA-256 is recorded in notes. Reimporting the same activity, or
+importing on a date that already has an activity, adds a warning to the editable
+command before any append-only correction can be created.
+
 ## Review training
 
 Show daily plan versus reality:

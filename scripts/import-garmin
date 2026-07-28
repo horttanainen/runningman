@@ -1,0 +1,448 @@
+#!/bin/sh
+set -eu
+
+script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repository_root=$(dirname "$script_directory")
+parser_binary="$repository_root/zig-out/bin/garmin-fit"
+parser_source="$repository_root/src/garmin_fit.zig"
+parser_main="$repository_root/src/garmin_fit_main.zig"
+
+data_path="runningman-data.jsonl"
+date_override=""
+dry_run=false
+summary_fixture=""
+build_only=false
+activity_path=""
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ./scripts/import-garmin [--date YYYY-MM-DD] [--data PATH] [--dry-run] FIT_OR_ZIP
+
+Reads a Garmin cycling activity locally, shows the measured summary, opens the
+generated runningman command in $EDITOR, and executes it after the editor exits
+normally. Both an original .fit file and Garmin Connect's exported .zip work.
+
+Options:
+  --date YYYY-MM-DD  Override the local activity date stored in the FIT file
+  --data PATH        Use a non-default runningman JSONL file
+  --dry-run          Print the editable command without opening an editor
+  -h, --help         Show this help
+EOF
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+require_value() {
+    option=$1
+    count=$2
+    if [ "$count" -lt 2 ]; then
+        fail "$option requires a value"
+    fi
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --date)
+            require_value "$1" "$#"
+            date_override=$2
+            shift 2
+            ;;
+        --data)
+            require_value "$1" "$#"
+            data_path=$2
+            shift 2
+            ;;
+        --dry-run)
+            dry_run=true
+            shift
+            ;;
+        --summary-fixture)
+            require_value "$1" "$#"
+            summary_fixture=$2
+            shift 2
+            ;;
+        --build-only)
+            build_only=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            fail "unknown option $1"
+            ;;
+        *)
+            if [ -n "$activity_path" ]; then
+                fail "expected exactly one Garmin activity path"
+            fi
+            activity_path=$1
+            shift
+            ;;
+    esac
+done
+
+build_parser() {
+    if [ ! -x "$parser_binary" ] ||
+        [ "$parser_source" -nt "$parser_binary" ] ||
+        [ "$parser_main" -nt "$parser_binary" ] ||
+        [ "$repository_root/build.zig" -nt "$parser_binary" ]
+    then
+        (cd "$repository_root" && zig build garmin-fit)
+    fi
+}
+
+build_parser
+if [ "$build_only" = true ]; then
+    exit 0
+fi
+
+if [ -z "$activity_path" ]; then
+    fail "expected one FIT or ZIP path; use --help for usage"
+fi
+if [ ! -f "$activity_path" ]; then
+    fail "Garmin activity not found: $activity_path"
+fi
+
+temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/runningman-garmin.XXXXXX")
+trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
+fit_path="$temporary_directory/activity.fit"
+summary_json="$temporary_directory/summary.json"
+command_file="$temporary_directory/import.zsh"
+
+if [ -n "$summary_fixture" ]; then
+    if [ ! -f "$summary_fixture" ]; then
+        fail "summary fixture not found: $summary_fixture"
+    fi
+    cp "$summary_fixture" "$summary_json"
+    cp "$activity_path" "$fit_path"
+else
+    case "$activity_path" in
+        *.zip|*.ZIP)
+            fit_members=$(
+                unzip -Z1 "$activity_path" |
+                    awk 'tolower($0) ~ /[.]fit$/ { print }'
+            )
+            fit_member_count=$(
+                printf '%s\n' "$fit_members" |
+                    awk 'NF { count += 1 } END { print count + 0 }'
+            )
+            if [ "$fit_member_count" -ne 1 ]; then
+                fail "ZIP must contain exactly one FIT file"
+            fi
+            unzip -p "$activity_path" "$fit_members" > "$fit_path"
+            ;;
+        *)
+            cp "$activity_path" "$fit_path"
+            ;;
+    esac
+    "$parser_binary" "$fit_path" > "$summary_json"
+fi
+
+json_value() {
+    /usr/bin/plutil -extract "$1" raw -o - "$summary_json" 2>/dev/null || true
+}
+
+workout_date=$(json_value date)
+if [ -n "$date_override" ]; then
+    workout_date=$date_override
+fi
+validated_date=$(date -j -f '%Y-%m-%d' "$workout_date" '+%Y-%m-%d' 2>/dev/null || true)
+if [ "$validated_date" != "$workout_date" ]; then
+    fail "invalid date $workout_date; expected YYYY-MM-DD"
+fi
+
+duration_seconds=$(json_value duration_seconds)
+distance=$(json_value distance_km)
+average_heart_rate=$(json_value average_heart_rate)
+maximum_heart_rate=$(json_value maximum_heart_rate)
+average_cadence=$(json_value average_cadence)
+maximum_cadence=$(json_value maximum_cadence)
+average_power=$(json_value average_power)
+maximum_power=$(json_value maximum_power)
+normalized_power=$(json_value normalized_power)
+calories=$(json_value calories)
+ascent_meters=$(json_value ascent_meters)
+descent_meters=$(json_value descent_meters)
+average_speed=$(json_value average_speed_kph)
+maximum_speed=$(json_value maximum_speed_kph)
+aerobic_training_effect=$(json_value aerobic_training_effect)
+anaerobic_training_effect=$(json_value anaerobic_training_effect)
+training_stress_score=$(json_value training_stress_score)
+intensity_factor=$(json_value intensity_factor)
+laps=$(json_value laps)
+average_temperature=$(json_value average_temperature_celsius)
+minimum_temperature=$(json_value minimum_temperature_celsius)
+maximum_temperature=$(json_value maximum_temperature_celsius)
+sport_profile_name=$(json_value sport_profile_name)
+
+if [ -z "$duration_seconds" ]; then
+    fail "Garmin summary has no duration"
+fi
+
+format_duration() {
+    total_seconds=$1
+    hours=$((total_seconds / 3600))
+    minutes=$(((total_seconds % 3600) / 60))
+    seconds=$((total_seconds % 60))
+    if [ "$hours" -gt 0 ]; then
+        printf '%d:%02d:%02d' "$hours" "$minutes" "$seconds"
+    else
+        printf '%d:%02d' "$minutes" "$seconds"
+    fi
+}
+
+compact_decimal() {
+    printf '%s' "$1" |
+        sed -E 's/([.][0-9]*[1-9])0+$/\1/; s/[.]0+$//'
+}
+
+duration=$(format_duration "$duration_seconds")
+distance_for_command=""
+if [ -n "$distance" ]; then
+    distance_for_command=$(printf '%.2f' "$distance")
+fi
+if [ -n "$aerobic_training_effect" ]; then
+    aerobic_training_effect=$(compact_decimal "$aerobic_training_effect")
+fi
+if [ -n "$anaerobic_training_effect" ]; then
+    anaerobic_training_effect=$(compact_decimal "$anaerobic_training_effect")
+fi
+if [ -n "$training_stress_score" ]; then
+    training_stress_score=$(compact_decimal "$training_stress_score")
+fi
+if [ -n "$intensity_factor" ]; then
+    intensity_factor=$(compact_decimal "$intensity_factor")
+fi
+
+source_name=$(basename "$activity_path")
+fit_hash=$(shasum -a 256 "$fit_path" | awk '{print $1}')
+
+existing_activity_count=0
+fit_already_imported=false
+if [ -f "$data_path" ]; then
+    existing_activity_count=$(
+        awk -v target="\"date\":\"$workout_date\"" '
+            index($0, "\"type\":\"activity\"") && index($0, target) { count += 1 }
+            END { print count + 0 }
+        ' "$data_path"
+    )
+    if grep -Fq "source_fit_sha256=$fit_hash" "$data_path"; then
+        fit_already_imported=true
+    fi
+fi
+
+notes="Garmin FIT import"
+append_note() {
+    value=$1
+    if [ -n "$value" ]; then
+        notes="$notes; $value"
+    fi
+}
+
+if [ -n "$sport_profile_name" ]; then
+    append_note "profile $sport_profile_name"
+fi
+if [ -n "$maximum_heart_rate" ]; then
+    append_note "max HR $maximum_heart_rate bpm"
+fi
+if [ -n "$average_cadence" ]; then
+    cadence_note="avg cadence $average_cadence rpm"
+    if [ -n "$maximum_cadence" ]; then
+        cadence_note="$cadence_note, max $maximum_cadence rpm"
+    fi
+    append_note "$cadence_note"
+fi
+if [ -n "$average_power" ]; then
+    power_note="avg power $average_power W"
+    if [ -n "$maximum_power" ]; then
+        power_note="$power_note, max $maximum_power W"
+    fi
+    if [ -n "$normalized_power" ]; then
+        power_note="$power_note, normalized $normalized_power W"
+    fi
+    append_note "$power_note"
+fi
+if [ -n "$calories" ]; then
+    append_note "$calories kcal"
+fi
+if [ -n "$ascent_meters" ] || [ -n "$descent_meters" ]; then
+    elevation_note=""
+    if [ -n "$ascent_meters" ]; then
+        elevation_note="ascent $ascent_meters m"
+    fi
+    if [ -n "$descent_meters" ]; then
+        if [ -n "$elevation_note" ]; then
+            elevation_note="$elevation_note, "
+        fi
+        elevation_note="${elevation_note}descent $descent_meters m"
+    fi
+    append_note "$elevation_note"
+fi
+if [ -n "$average_speed" ]; then
+    speed_note=$(printf 'avg speed %.1f km/h' "$average_speed")
+    if [ -n "$maximum_speed" ]; then
+        speed_note="$speed_note$(printf ', max %.1f km/h' "$maximum_speed")"
+    fi
+    append_note "$speed_note"
+fi
+if [ -n "$aerobic_training_effect" ]; then
+    training_effect_note="aerobic TE $aerobic_training_effect"
+    if [ -n "$anaerobic_training_effect" ]; then
+        training_effect_note="$training_effect_note, anaerobic TE $anaerobic_training_effect"
+    fi
+    append_note "$training_effect_note"
+fi
+if [ -n "$training_stress_score" ]; then
+    append_note "TSS $training_stress_score"
+fi
+if [ -n "$intensity_factor" ]; then
+    append_note "intensity factor $intensity_factor"
+fi
+if [ -n "$laps" ]; then
+    append_note "$laps laps"
+fi
+if [ -n "$average_temperature" ]; then
+    temperature_note="avg temperature $average_temperature C"
+    if [ -n "$minimum_temperature" ] && [ -n "$maximum_temperature" ]; then
+        temperature_note="$temperature_note, range ${minimum_temperature}–${maximum_temperature} C"
+    fi
+    append_note "$temperature_note"
+fi
+
+zones=""
+zone_index=0
+while [ "$zone_index" -le 6 ]; do
+    zone_seconds=$(json_value "heart_rate_zone_seconds.$zone_index")
+    if [ -n "$zone_seconds" ]; then
+        case "$zone_index" in
+            0) zone_label="below Z1" ;;
+            1) zone_label="Z1" ;;
+            2) zone_label="Z2" ;;
+            3) zone_label="Z3" ;;
+            4) zone_label="Z4" ;;
+            5) zone_label="Z5" ;;
+            6) zone_label="above Z5" ;;
+        esac
+        if [ -n "$zones" ]; then
+            zones="$zones, "
+        fi
+        zones="$zones$zone_label $(format_duration "$zone_seconds")"
+    fi
+    zone_index=$((zone_index + 1))
+done
+if [ -n "$zones" ]; then
+    append_note "HR zones $zones"
+fi
+append_note "source $source_name"
+append_note "source_fit_sha256=$fit_hash"
+
+shell_quote() {
+    escaped=$(printf '%s' "$1" | sed "s/'/'\\\"'\\\"'/g")
+    printf "'%s'" "$escaped"
+}
+
+runningman_binary=${RUNNINGMAN_BIN:-"$repository_root/zig-out/bin/runningman"}
+if [ ! -x "$runningman_binary" ]; then
+    fail "runningman executable not found at $runningman_binary; run ./check.sh first"
+fi
+
+{
+    printf '%s\n' '#!/bin/zsh' 'set -e' ''
+    printf '# Generated from %s.\n' "$source_name"
+    printf '%s\n' \
+        '# Edit any inferred value before saving and exiting.' \
+        '# For optional fields, replace the placeholder and remove the leading "#".' \
+        "# If this ride replaced a planned run, change the outcome to modified and add: --reason '...'"
+    if [ "$existing_activity_count" -gt 0 ]; then
+        printf '%s\n' '# WARNING: this date already has an activity; running this creates an append-only correction.'
+    fi
+    if [ "$fit_already_imported" = true ]; then
+        printf '%s\n' '# WARNING: this exact FIT activity hash already appears in the data file.'
+    fi
+    printf '\n%s\n' 'command=('
+    printf '  %s\n' "$(shell_quote "$runningman_binary")"
+    if [ "$data_path" != "runningman-data.jsonl" ]; then
+        printf '  --data %s\n' "$(shell_quote "$data_path")"
+    fi
+    printf '  log %s\n' "$(shell_quote "$workout_date")"
+    printf '%s\n' '  --sport cycling' '  --outcome completed'
+    if [ -n "$distance_for_command" ]; then
+        printf '  --distance %s\n' "$distance_for_command"
+    fi
+    printf '  --duration %s\n' "$(shell_quote "$duration")"
+    if [ -n "$average_heart_rate" ]; then
+        printf '  --avg-hr %s\n' "$average_heart_rate"
+    fi
+    printf '%s\n' '' '  # Optional fields: edit the value, then uncomment the line.'
+    printf '%s\n' '  # --rpe 1-10' '  # --pain 0-10' ''
+    printf '  --notes %s\n' "$(shell_quote "$notes")"
+    printf '%s\n' ')' '' '"${command[@]}"'
+} > "$command_file"
+
+if [ "$dry_run" = true ]; then
+    cat "$command_file"
+    exit 0
+fi
+
+printf '%s\n' 'Measured Garmin cycling workout:'
+printf '  Date:       %s\n' "$workout_date"
+printf '  Duration:   %s\n' "$duration"
+if [ -n "$distance_for_command" ]; then
+    printf '  Distance:   %s km\n' "$distance_for_command"
+else
+    printf '%s\n' '  Distance:   not found'
+fi
+if [ -n "$average_heart_rate" ]; then
+    printf '  Average HR: %s bpm\n' "$average_heart_rate"
+else
+    printf '%s\n' '  Average HR: not found'
+fi
+if [ -n "$maximum_heart_rate" ]; then
+    printf '  Maximum HR: %s bpm\n' "$maximum_heart_rate"
+else
+    printf '%s\n' '  Maximum HR: not found'
+fi
+if [ -n "$calories" ]; then
+    printf '  Calories:   %s kcal\n' "$calories"
+else
+    printf '%s\n' '  Calories:   not found'
+fi
+printf '  Profile:    %s\n' "${sport_profile_name:-not found}"
+printf '  HR zones:   %s\n' "${zones:-not found}"
+printf '%s\n' '  Missing:    RPE, pain'
+if [ "$existing_activity_count" -gt 0 ]; then
+    printf '  Warning:    %s existing activity record(s) for this date; this will be a correction.\n' "$existing_activity_count"
+fi
+if [ "$fit_already_imported" = true ]; then
+    printf '%s\n' '  Warning:    this exact FIT activity was already imported.'
+fi
+
+printf '\n%s' 'Use these values as the initial command? Saving and exiting the editor will run it. [Y/n] '
+IFS= read -r answer || answer=""
+case "$answer" in
+    n|N|no|NO|No)
+        printf '%s\n' 'Import cancelled.'
+        exit 0
+        ;;
+esac
+
+editor=${EDITOR:-vi}
+if /bin/zsh -lc "$editor $(shell_quote "$command_file")"; then
+    :
+else
+    status=$?
+    printf 'Editor exited with status %s; import cancelled.\n' "$status"
+    exit 0
+fi
+
+if ! grep -Ev '^[[:space:]]*(#|$|set -e)' "$command_file" >/dev/null; then
+    printf '%s\n' 'The edited command was empty; import cancelled.'
+    exit 0
+fi
+
+/bin/zsh "$command_file"
