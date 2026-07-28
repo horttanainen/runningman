@@ -1,8 +1,8 @@
 {
-  "schema_version": 1,
-  "policy_id": "half-marathon-v1",
-  "policy_version": 1,
-  "evidence_ledger_id": "half-marathon-v1-evidence",
+  "schema_version": 2,
+  "policy_id": "half-marathon",
+  "policy_version": 2,
+  "evidence_ledger_id": "half-marathon-evidence",
   "support": {
     "rule_id": "SCOPE-01",
     "race_distance": "half_marathon",
@@ -87,6 +87,20 @@
     "maximum_quality_sessions_per_week": 2,
     "easy_effort_guidance": "Conversational running, normally RPE 2-4 out of 10.",
     "quality_effort_guidance": "Controlled demanding work, normally RPE 6-8; repetitions stop before form deteriorates."
+  },
+  "quality_progression": {
+    "rule_id": "RECIPE-01",
+    "target_weekly_distance_fraction": 0.2,
+    "maximum_weekly_distance_fraction": 0.22,
+    "maximum_session_distance_km": 8,
+    "minimum_warmup_cooldown_km": 1,
+    "maximum_warmup_cooldown_km": 2,
+    "foundation_repetition_distance_km": 1,
+    "foundation_initial_work_fraction": 0.1,
+    "foundation_weekly_work_increase_km": 1,
+    "interval_recovery_seconds": 120,
+    "recovery_work_fraction": 0.75,
+    "race_week_work_distance_km": 2
   },
   "long_run": {
     "rule_id": "LONG-01",
@@ -278,7 +292,7 @@
     {
       "rule_id": "SCOPE-01",
       "category": "scope",
-      "summary": "Version 1 supports one half marathon over 56-168 days with 3-6 core running days.",
+      "summary": "Support one half marathon over 56-168 days with 3-6 core running days.",
       "evidence_ids": [],
       "product_assumption": "This is the deliberately narrow product scope approved for Phase 1, not a physiological boundary."
     },
@@ -379,11 +393,11 @@
     {
       "rule_id": "RECIPE-01",
       "category": "workout_recipe",
-      "summary": "Use low-intensity, controlled quality, race-specific, and rest recipes appropriate to each phase.",
+      "summary": "Use phase-appropriate recipes with explicit quality-work progression, recovery, specificity, and taper decisions.",
       "evidence_ids": [
         "E-TID-001"
       ],
-      "product_assumption": "Exact recipe distances, durations, repetitions, and paces will be generated and validated in Increment 3."
+      "product_assumption": "Exact work-distance increments, repetition formats, and recovery durations are transparent deterministic construction choices; the cited evidence does not establish one universal prescription."
     }
   ]
 }

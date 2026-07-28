@@ -1,11 +1,11 @@
-# Half-marathon policy version 1
+# Half-marathon policy
 
-Status: implemented for Increment 2 review
+Status: implemented
 
-This document explains what `half-marathon-v1` does, which parts are linked to
+This document explains what the `half-marathon` policy does, which parts are linked to
 research, and which parts are transparent product assumptions. The policy file
 is the executable source of truth:
-[`policies/half-marathon-v1.json`](../policies/half-marathon-v1.json).
+[`policies/half-marathon.json`](../policies/half-marathon.json).
 
 ## Assessment model
 
@@ -87,7 +87,7 @@ recommendation. It never uses an aspirational or infeasible time.
 | Rule | Purpose | Evidence | Explicit assumption |
 |---|---|---|---|
 | `SCOPE-01` | Half marathon, 56–168 days, 3–6 core days | None | Approved Phase 1 scope |
-| `PER-01` | Foundation → build/recovery → race-specific → taper → race | `E-TID-001`, `E-BLOCK-001` | Transparent traditional phases are preferred for version 1 |
+| `PER-01` | Foundation → build/recovery → race-specific → taper → race | `E-TID-001`, `E-BLOCK-001` | Transparent traditional phases are preferred for version 2 |
 | `BASE-01` | Race-equivalence estimate with uncertainty | `E-PRED-001` | Distance-specific uncertainty bands |
 | `TARGET-01` | Recommendation and feasibility classification | `E-PRED-001` | Improvement, rounding, readiness, and aspiration parameters |
 | `VOL-01` | Build-volume and peak boundaries | `E-INJURY-001` | A 10% construction cap smooths plans; it is not a proven injury threshold |
@@ -98,25 +98,52 @@ recommendation. It never uses an aspirational or infeasible time.
 | `SCHED-01` | Separate demanding sessions | None | At least one easy/rest day |
 | `OPTIONAL-01` | Keep recovery run removable | None | At most 12% of weekly distance |
 | `MISSED-01` | Do not stack missed work | None | Preserve remaining structure and spacing |
-| `RECIPE-01` | Phase-appropriate workout recipe set | `E-TID-001` | Exact prescriptions wait for Increment 3 |
+| `RECIPE-01` | Phase-appropriate recipes and explicit quality-work progression | `E-TID-001` | Exact work increments, repetition formats, and recoveries are deterministic construction choices |
 
 The reviewed evidence is stored in
-[`evidence/half-marathon-v1.json`](../evidence/half-marathon-v1.json). Policy
+[`evidence/half-marathon.json`](../evidence/half-marathon.json). Policy
 validation requires reciprocal links: a policy rule must cite the evidence, and
 the evidence entry must list the policy rule.
+
+## Quality-work progression
+
+Policy version 2 makes the progression of the weekly quality session explicit.
+Every quality workout records:
+
+- its stage and phase week;
+- the work distance and previous quality-work distance;
+- repetition distance and count where applicable;
+- recovery duration; and
+- the load method: establish, progress, recovery reduction, race-specific
+  progression, taper reduction, or race-week sharpening.
+
+Foundation intervals retain 1 km repetitions and two-minute recoveries. Work
+progresses by adding a whole repetition, subject to the weekly-distance and
+session caps. Build and race-specific stages progress continuous work without
+regressing at a stage transition. Recovery, taper, and race-week stages must
+reduce or hold quality work relative to the preceding quality session. The
+independent plan validator recomputes these relationships and rejects edited
+proposals whose structured segments and progression record disagree.
+
+These exact increments and formats are transparent product assumptions. The
+cited intensity-distribution evidence supports controlled quality within a
+mostly low-intensity program, but does not identify one universally optimal
+repetition sequence.
 
 ## Evidence boundaries
 
 The injury review found conflicting associations between injuries and distance,
 duration, frequency, intensity, and recent changes. It did not justify a
-universal 10% progression rule. Version 1 therefore treats its progression
+universal 10% progression rule. Version 2 therefore treats its progression
 limits as deterministic plan-construction assumptions.
 
 The taper review covered different endurance sports, distances, and protocols.
-Version 1 stays inside its reported duration and volume-reduction ranges but
+Version 2 stays inside its reported duration and volume-reduction ranges but
 does not claim one uniquely optimal half-marathon taper.
 
 The individualized-training study combined nocturnal heart-rate variability,
-perceived recovery, and running-performance status. It does not justify changing
-the schedule automatically from one Oura score. Automatic response estimation
-remains outside Phase 1.
+perceived recovery, and running-performance status. It does not justify
+changing the schedule automatically from one Oura score. The versioned local
+review classifier therefore requires persistent low wearable scores, labels
+its thresholds as product assumptions, and only requests human review; it
+never changes the schedule.

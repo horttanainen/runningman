@@ -23,10 +23,32 @@ grep -q "Evidence ledger is valid: half-marathon-research-example" "$temporary_d
 grep -q "Entries: 1 (0 linked to at least one policy rule)" "$temporary_directory/evidence.txt"
 test ! -e "$data_file"
 
-"$binary" policy validate policies/half-marathon-v1.json > "$temporary_directory/policy.txt"
-grep -q "Training policy is valid: half-marathon-v1 version 1" "$temporary_directory/policy.txt"
+"$binary" policy validate policies/half-marathon.json > "$temporary_directory/policy.txt"
+grep -q "Training policy is valid: half-marathon version 2" "$temporary_directory/policy.txt"
 grep -q "Rules: 13; phases: 6; workout recipes: 11" "$temporary_directory/policy.txt"
 test ! -e "$data_file"
+unsupported_policy="$temporary_directory/unsupported-policy.json"
+sed 's/"policy_version": 2/"policy_version": 3/' \
+    policies/half-marathon.json > "$unsupported_policy"
+if "$binary" policy validate "$unsupported_policy" \
+    > /dev/null 2> "$temporary_directory/unsupported-policy-error.txt"
+then
+    echo "expected an unsupported training policy version to be rejected" >&2
+    exit 1
+fi
+grep -q "only training policy version 2 is supported" \
+    "$temporary_directory/unsupported-policy-error.txt"
+unsupported_policy_schema="$temporary_directory/unsupported-policy-schema.json"
+sed 's/"schema_version": 2/"schema_version": 3/' \
+    policies/half-marathon.json > "$unsupported_policy_schema"
+if "$binary" policy validate "$unsupported_policy_schema" \
+    > /dev/null 2> "$temporary_directory/unsupported-policy-schema-error.txt"
+then
+    echo "expected an unsupported training policy schema to be rejected" >&2
+    exit 1
+fi
+grep -q "training policy schema_version must be 2" \
+    "$temporary_directory/unsupported-policy-schema-error.txt"
 
 "$binary" plan assess examples/runner-profile.json > "$temporary_directory/assessment.txt"
 grep -q "Current half-marathon equivalent: 1:57:49" "$temporary_directory/assessment.txt"
@@ -56,7 +78,13 @@ grep -q '"phase": "recovery"' "$generated_plan"
 grep -q '"schema_version": 2' "$generated_plan"
 grep -q '"phase": "race_specific"' "$generated_plan"
 grep -q '"phase": "taper"' "$generated_plan"
-grep -q '"generator_version": "runningman-phase-1-v1"' "$generated_plan"
+grep -q '"generator_version": "runningman-planner-v2"' "$generated_plan"
+test "$(jq -r '.provenance.schema_version' "$generated_plan")" = "2"
+test "$(jq -r '.provenance.training_policy.schema_version' "$generated_plan")" = "2"
+test "$(jq -r '.provenance.training_policy.policy_id' "$generated_plan")" = "half-marathon"
+grep -q '"phase_week": 2' "$generated_plan"
+grep -q '"stage_id": "foundation-aerobic-intervals"' "$generated_plan"
+grep -q '"load_method": "progress_work"' "$generated_plan"
 grep -Eq '"runner_profile_sha256": "[0-9a-f]{64}"' "$generated_plan"
 grep -Eq '"training_policy_sha256": "[0-9a-f]{64}"' "$generated_plan"
 grep -Eq '"evidence_ledger_sha256": "[0-9a-f]{64}"' "$generated_plan"
@@ -76,17 +104,24 @@ grep -q "Embedded profile, policy, provenance, and assessment are consistent" \
 grep -q "Expected total time" "$temporary_directory/generated-preview.txt"
 grep -q "Aerobic intervals: 3 repetitions totalling 3.0 km" "$temporary_directory/generated-preview.txt"
 grep -q "3 × 1.0 km" "$temporary_directory/generated-preview.txt"
+grep -q "4 × 1.0 km" "$temporary_directory/generated-preview.txt"
 grep -q "2:00 easy recovery between repetitions" "$temporary_directory/generated-preview.txt"
+if grep -q "500 m" "$temporary_directory/generated-preview.txt"; then
+    echo "expected foundation progression to retain one-kilometre repetitions" >&2
+    exit 1
+fi
 if grep -q "Controlled aerobic intervals: 3.0 km" "$temporary_directory/generated-preview.txt"; then
     echo "expected generated intervals to include repetitions and recovery" >&2
     exit 1
 fi
-grep -q "Assessment: example-half-marathon-runner; half-marathon-v1 v1" "$temporary_directory/generated-preview.txt"
+grep -q "Assessment: example-half-marathon-runner; half-marathon v2" "$temporary_directory/generated-preview.txt"
 grep -q "Planner provenance" "$temporary_directory/generated-preview.txt"
-grep -q "Generator: runningman-phase-1-v1" "$temporary_directory/generated-preview.txt"
+grep -q "Generator: runningman-planner-v2" "$temporary_directory/generated-preview.txt"
 grep -q "Complete profile and policy snapshots are embedded" "$temporary_directory/generated-preview.txt"
 grep -q "Basis: build_progression; rules PER-01, VOL-01, LONG-01" "$temporary_directory/generated-preview.txt"
-grep -q "Basis: recipe aerobic-intervals; distance quality_weekly_fraction" "$temporary_directory/generated-preview.txt"
+grep -q "Basis: recipe aerobic-intervals; distance quality_progression" "$temporary_directory/generated-preview.txt"
+grep -q "Progression: foundation-aerobic-intervals; progress_work; phase week 2/2; 4.0 km work" \
+    "$temporary_directory/generated-preview.txt"
 grep -q "Macrocycle" "$temporary_directory/generated-preview.txt"
 grep -q "Week 13 .*race, 33.1 km core" "$temporary_directory/generated-preview.txt"
 grep -q "No data was changed" "$temporary_directory/generated-preview.txt"
@@ -104,16 +139,32 @@ grep -q "Workout explanation" "$temporary_directory/proposal-workout-explanation
 grep -q "Recipe: aerobic-intervals" "$temporary_directory/proposal-workout-explanation.txt"
 grep -q "Allocation: quality; 6.0 km from a 30.0 km core week" \
     "$temporary_directory/proposal-workout-explanation.txt"
+grep -q "Quality progression: foundation-aerobic-intervals; establish; phase week 1 of 2; 3.0 km work" \
+    "$temporary_directory/proposal-workout-explanation.txt"
 grep -q "INT-01:" "$temporary_directory/proposal-workout-explanation.txt"
-legacy_plan="$temporary_directory/legacy-plan.json"
-sed 's/"schema_version": 2/"schema_version": 1/' "$generated_plan" > "$legacy_plan"
-if "$binary" --data "$generated_data_file" plan preview "$legacy_plan" \
-    > /dev/null 2> "$temporary_directory/legacy-plan-error.txt"
+unsupported_plan="$temporary_directory/unsupported-plan.json"
+sed 's/"schema_version": 2/"schema_version": 3/' \
+    "$generated_plan" > "$unsupported_plan"
+if "$binary" --data "$generated_data_file" plan preview "$unsupported_plan" \
+    > /dev/null 2> "$temporary_directory/unsupported-plan-error.txt"
 then
-    echo "expected proposed-plan schema version 1 to be rejected" >&2
+    echo "expected an unsupported proposed-plan schema to be rejected" >&2
     exit 1
 fi
-grep -q "revision file schema_version must be 2" "$temporary_directory/legacy-plan-error.txt"
+grep -q "revision file schema_version must be 2" \
+    "$temporary_directory/unsupported-plan-error.txt"
+
+unsupported_generator_plan="$temporary_directory/unsupported-generator-plan.json"
+sed 's/runningman-planner-v2/runningman-planner-unsupported/' \
+    "$generated_plan" > "$unsupported_generator_plan"
+if "$binary" --data "$generated_data_file" plan preview "$unsupported_generator_plan" \
+    > /dev/null 2> "$temporary_directory/unsupported-generator-error.txt"
+then
+    echo "expected unsupported generator provenance to be rejected" >&2
+    exit 1
+fi
+grep -q "generated plan provenance does not match" \
+    "$temporary_directory/unsupported-generator-error.txt"
 
 tampered_distance_plan="$temporary_directory/tampered-distance-plan.json"
 sed 's/"allocated_distance_km": 6,/"allocated_distance_km": 6.5,/' \
@@ -129,6 +180,18 @@ grep -q "workout decision records the wrong distance" \
     "$temporary_directory/tampered-distance-error.txt"
 line_count_after=$(wc -l < "$generated_data_file" | tr -d ' ')
 test "$line_count_before" = "$line_count_after"
+
+tampered_quality_plan="$temporary_directory/tampered-quality-plan.json"
+sed 's/"work_distance_km": 3,/"work_distance_km": 3.5,/' \
+    "$generated_plan" > "$tampered_quality_plan"
+if "$binary" --data "$generated_data_file" plan preview "$tampered_quality_plan" \
+    > /dev/null 2> "$temporary_directory/tampered-quality-error.txt"
+then
+    echo "expected mismatched quality progression to be rejected" >&2
+    exit 1
+fi
+grep -q "quality-progression decision does not match its workout segments" \
+    "$temporary_directory/tampered-quality-error.txt"
 
 tampered_assessment_plan="$temporary_directory/tampered-assessment-plan.json"
 sed 's/"recommended_target_seconds": 7200/"recommended_target_seconds": 7100/g' \
@@ -169,19 +232,19 @@ grep -q "demanding sessions do not have enough" \
     > "$temporary_directory/generated-apply.txt"
 grep -q "Applied schedule #2" "$temporary_directory/generated-apply.txt"
 grep -q '"plan_provenance":{' "$generated_data_file"
-grep -q '"generator_version":"runningman-phase-1-v1"' "$generated_data_file"
+grep -q '"generator_version":"runningman-planner-v2"' "$generated_data_file"
 grep -q '"decision":{"recipe_id":"aerobic-intervals"' "$generated_data_file"
 grep -q '"plan_weeks":\[' "$generated_data_file"
 "$binary" --data "$generated_data_file" 2026-07-21 \
     > "$temporary_directory/generated-reload.txt"
 grep -q "Schedule #2" "$temporary_directory/generated-reload.txt"
 if "$binary" --data "$generated_data_file" today 2026-07-21 \
-    > /dev/null 2> "$temporary_directory/legacy-today-date-error.txt"
+    > /dev/null 2> "$temporary_directory/obsolete-today-date-error.txt"
 then
-    echo "expected the legacy 'today DATE' form to be rejected" >&2
+    echo "expected the obsolete 'today DATE' form to be rejected" >&2
     exit 1
 fi
-grep -q "too many arguments" "$temporary_directory/legacy-today-date-error.txt"
+grep -q "too many arguments" "$temporary_directory/obsolete-today-date-error.txt"
 line_count_before=$(wc -l < "$generated_data_file" | tr -d ' ')
 "$binary" --data "$generated_data_file" plan explain \
     > "$temporary_directory/schedule-explanation.txt"
@@ -194,21 +257,6 @@ grep -q "Volume method: recovery_reduction" "$temporary_directory/schedule-expla
     > "$temporary_directory/schedule-workout-explanation.txt"
 grep -q "Schedule #2 explanation" "$temporary_directory/schedule-workout-explanation.txt"
 grep -q "Recipe: aerobic-intervals" "$temporary_directory/schedule-workout-explanation.txt"
-legacy_explanation_data="$temporary_directory/legacy-explanation-data.jsonl"
-sed 's/,"plan_weeks":\[[^]]*\]//' "$generated_data_file" > "$legacy_explanation_data"
-"$binary" --data "$legacy_explanation_data" plan explain 2026-07-21 \
-    > "$temporary_directory/legacy-workout-explanation.txt"
-grep -q "Week derivation record: unavailable for this previously applied schedule" \
-    "$temporary_directory/legacy-workout-explanation.txt"
-grep -q "the workout decision below was persisted" \
-    "$temporary_directory/legacy-workout-explanation.txt"
-if grep -q "Source: reconstructed from persisted workout decisions" \
-    "$temporary_directory/legacy-workout-explanation.txt"
-then
-    echo "expected the reconstruction source to be stated only once" >&2
-    exit 1
-fi
-
 future_plan_source="$temporary_directory/future-plan-source.json"
 future_plan="$temporary_directory/future-plan.json"
 "$binary" --data "$generated_data_file" plan generate examples/runner-profile.json \
@@ -363,7 +411,14 @@ grep -q "Readiness was below 70" "$temporary_directory/compare.txt"
 "$binary" --data "$data_file" review --weeks 1 --ending 2026-07-26 > "$temporary_directory/check-in.md"
 grep -q "# Running training check-in" "$temporary_directory/check-in.md"
 grep -q "## Training context" "$temporary_directory/check-in.md"
+grep -q 'Planner: runningman-planner-v2; profile `example-half-marathon-runner`; policy `half-marathon` v2' \
+    "$temporary_directory/check-in.md"
+grep -q "Supported race-date outcome range: 1:48:42–2:02:32" \
+    "$temporary_directory/check-in.md"
 grep -q "## Signals for review" "$temporary_directory/check-in.md"
+grep -q "## Applicable planning guardrails" "$temporary_directory/check-in.md"
+grep -q '`RECIPE-01` quality: at most 22% of core weekly distance' \
+    "$temporary_directory/check-in.md"
 grep -q "## Complete remaining program" "$temporary_directory/check-in.md"
 grep -q "## Whole-program revision contract" "$temporary_directory/check-in.md"
 grep -q "2026-10-18 Sunday — race" "$temporary_directory/check-in.md"
@@ -373,12 +428,66 @@ grep -Eq "active by period end|known upcoming at period end|recorded after this 
 grep -Fq 'Easy \| relaxed' "$temporary_directory/check-in.md"
 grep -q "right knee" "$temporary_directory/check-in.md"
 grep -q "Sleep 65/100; Readiness 59/100" "$temporary_directory/check-in.md"
+grep -q "Classification: \\*\\*INSUFFICIENT_DATA\\*\\*" "$temporary_directory/check-in.md"
+grep -q "REVIEW-COVERAGE-ACTIVITY-01.*FIRED" "$temporary_directory/check-in.md"
+grep -q "REVIEW-PAIN-01.*FIRED" "$temporary_directory/check-in.md"
 
 line_count=$(wc -l < "$data_file" | tr -d ' ')
 test "$line_count" = "192"
 
 "$binary" --data "$data_file" export --format jsonl > "$temporary_directory/raw.jsonl"
 cmp "$data_file" "$temporary_directory/raw.jsonl"
+
+keep_review_data="$temporary_directory/keep-review.jsonl"
+"$binary" --data "$keep_review_data" init 2026-07-20 >/dev/null
+"$binary" --data "$keep_review_data" log 2026-07-20 \
+    --distance 6 --rpe 3 --pain 0 >/dev/null
+"$binary" --data "$keep_review_data" log 2026-07-21 \
+    --distance 6 --rpe 6 --pain 0 >/dev/null
+"$binary" --data "$keep_review_data" log 2026-07-23 \
+    --distance 6 --rpe 3 --pain 0 >/dev/null
+"$binary" --data "$keep_review_data" log 2026-07-25 \
+    --distance 12 --rpe 5 --pain 0 >/dev/null
+"$binary" --data "$keep_review_data" check-in 2026-07-21 \
+    --sleep 82 --readiness 78 >/dev/null
+"$binary" --data "$keep_review_data" check-in 2026-07-22 \
+    --sleep 65 --readiness 69 >/dev/null
+keep_line_count=$(wc -l < "$keep_review_data" | tr -d ' ')
+"$binary" --data "$keep_review_data" review --weeks 1 --ending 2026-07-26 \
+    > "$temporary_directory/keep-review.md"
+grep -q "Classification: \\*\\*KEEP_PLAN\\*\\*" "$temporary_directory/keep-review.md"
+grep -q "REVIEW-RECOVERY-PERSISTENCE-01.*passed" "$temporary_directory/keep-review.md"
+test "$keep_line_count" = "$(wc -l < "$keep_review_data" | tr -d ' ')"
+
+"$binary" --data "$keep_review_data" log 2026-08-01 \
+    --distance 15 --rpe 10 --pain 5 >/dev/null
+"$binary" --data "$keep_review_data" review --weeks 1 --ending 2026-07-26 \
+    > "$temporary_directory/no-future-leakage-review.md"
+grep -q "Classification: \\*\\*KEEP_PLAN\\*\\*" \
+    "$temporary_directory/no-future-leakage-review.md"
+
+review_required_data="$temporary_directory/review-required.jsonl"
+cp "$keep_review_data" "$review_required_data"
+"$binary" --data "$review_required_data" log 2026-07-21 \
+    --modified --distance 5 --rpe 9 --pain 2 \
+    --reason "Stopped early" >/dev/null
+"$binary" --data "$review_required_data" review --weeks 1 --ending 2026-07-26 \
+    > "$temporary_directory/review-required.md"
+grep -q "Classification: \\*\\*REVIEW_REQUIRED\\*\\*" \
+    "$temporary_directory/review-required.md"
+grep -q "REVIEW-ADHERENCE-01.*FIRED" "$temporary_directory/review-required.md"
+grep -q "REVIEW-PAIN-01.*FIRED" "$temporary_directory/review-required.md"
+grep -q "REVIEW-DIFFICULTY-01.*FIRED" "$temporary_directory/review-required.md"
+
+sparse_review_data="$temporary_directory/sparse-review.jsonl"
+"$binary" --data "$sparse_review_data" init 2026-07-20 >/dev/null
+"$binary" --data "$sparse_review_data" log 2026-07-20 \
+    --distance 6 --rpe 3 --pain 0 >/dev/null
+"$binary" --data "$sparse_review_data" review --weeks 1 --ending 2026-07-26 \
+    > "$temporary_directory/sparse-review.md"
+grep -q "Classification: \\*\\*INSUFFICIENT_DATA\\*\\*" \
+    "$temporary_directory/sparse-review.md"
+grep -q "REVIEW-COVERAGE-RECOVERY-01.*FIRED" "$temporary_directory/sparse-review.md"
 
 if "$binary" --data "$data_file" log 2026-07-22 --distance 8 --rpe 11 >/dev/null 2>&1; then
     echo "expected invalid RPE to fail" >&2

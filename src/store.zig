@@ -145,7 +145,7 @@ pub fn earliestScheduleDate(storage: *const Store) ?date.Date {
 }
 
 fn applyEvent(storage: *Store, allocator: std.mem.Allocator, event: model.Event) !void {
-    if (event.schema_version != 1) return error.UnsupportedSchemaVersion;
+    if (event.schema_version != 2) return error.UnsupportedSchemaVersion;
     switch (event.type) {
         .schedule => {
             const value: model.Schedule = .{
@@ -176,7 +176,7 @@ fn applyEvent(storage: *Store, allocator: std.mem.Allocator, event: model.Event)
                 .date = event.date orelse return error.InvalidDataFile,
                 .week = event.week orelse return error.InvalidDataFile,
                 .day = event.day orelse return error.InvalidDataFile,
-                .phase = event.phase orelse "legacy",
+                .phase = event.phase orelse return error.InvalidDataFile,
                 .kind = event.kind orelse return error.InvalidDataFile,
                 .intensity = event.intensity orelse "",
                 .distance_min_km = event.distance_min_km,

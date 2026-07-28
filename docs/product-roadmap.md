@@ -155,7 +155,7 @@ Phase 1 will not:
 
 ```sh
 runningman plan generate runner-profile.json \
-  --policy half-marathon-v1 \
+  --policy half-marathon \
   --output proposed-plan.json
 
 runningman plan preview proposed-plan.json
@@ -176,7 +176,7 @@ Phase: race-specific
 Derived from:
 - recent longest run: 16 km
 - week 9 of 13
-- policy half-marathon-v1 long-run progression rule LR-03
+- policy half-marathon long-run progression rule LR-03
 - recovery week completed in week 8
 ```
 
@@ -231,7 +231,7 @@ Create a versioned evidence ledger. Each entry contains:
 - confidence level; and
 - policy rules that reference it.
 
-Create `half-marathon-v1` as structured policy data rather than scattered
+Create `half-marathon` as structured policy data rather than scattered
 constants. It should define:
 
 - supported plan lengths and runner profiles;
@@ -263,7 +263,7 @@ Deliverables:
 
 - evidence-ledger schema;
 - reviewed starter evidence entries;
-- `half-marathon-v1` policy file;
+- `half-marathon` policy file;
 - a policy linter; and
 - documentation that maps every policy rule to evidence or an explicit product
   assumption.
@@ -480,7 +480,7 @@ becoming burdensome.
 ### Increment 2: policy and baseline
 
 - [x] Review the initial research queue.
-- [x] Produce `half-marathon-v1`.
+- [x] Produce `half-marathon`.
 - [x] Implement baseline and goal assessment.
 - [x] Render explanations and confidence-reducing missing data.
 
@@ -501,8 +501,9 @@ Review gate: inspect several complete schedules, including boundary cases.
 - [x] Preserve policy and input provenance (Increment 4.1).
 - [x] Revalidate edited proposals before preview and apply (Increment 4.2).
 - [x] Add `plan explain` (Increment 4.3).
-- Expand review export and add deterministic review classification (Increment
-  4.4).
+- Complete the remaining review-export compactness and adherence breakdowns
+  (Increment 4.4); deterministic classification, provenance context, and
+  policy guardrails are implemented.
 - Complete the synthetic-profile and invariant-test suite.
 
 Review gate: decide whether Phase 1 is stable enough to begin the Swift port or
@@ -556,7 +557,7 @@ The output must explain the classification and list every triggering or
 coverage rule. It must never mutate the schedule. When the result is
 `REVIEW_REQUIRED`, the export may be given to a person or an optional local or
 external language model for interpretation, but any replacement program still
-uses proposed-plan v2, independent validation, preview, and explicit apply.
+uses the proposed-plan schema, independent validation, preview, and explicit apply.
 
 This increment does not implement automatic `reduce`, `hold`, or `progress`
 adaptation. Phase 3 will add that response policy, candidate-plan generation,
@@ -599,7 +600,7 @@ Phase 1 is complete when:
 - representative three-to-six-day plans have been manually reviewed;
 - generation never writes data before explicit preview and apply; and
 - `./check.sh` exercises profile validation, generation, invariants, CLI flow,
-  v2 proposal enforcement, and historical event loading.
+  current proposal enforcement, and historical event loading.
 
 ## Decisions requested before implementation
 

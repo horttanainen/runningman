@@ -92,7 +92,7 @@ pub const MorningCheckIn = struct {
 };
 
 pub const Event = struct {
-    schema_version: u8 = 1,
+    schema_version: u8 = 2,
     type: EventType,
 
     id: u64,

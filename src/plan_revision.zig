@@ -285,6 +285,13 @@ pub fn printPreview(
         if (week.long_run_distance_km > 0) {
             try writer.print(", {d:.1} km long run", .{week.long_run_distance_km});
         }
+        try writer.print(
+            ", phase week {d}/{d}",
+            .{
+                week.decision.phase_week,
+                week.decision.phase_week_count,
+            },
+        );
         try writer.writeByte('\n');
         const decision = week.decision;
         try writer.print(
@@ -355,6 +362,25 @@ pub fn printPreview(
             try writer.writeAll(rule_id);
         }
         try writer.writeByte('\n');
+        if (decision.quality_progression) |quality| {
+            try writer.print(
+                "    Progression: {s}; {s}; phase week {d}/{d}; {d:.1} km work",
+                .{
+                    quality.stage_id,
+                    @tagName(quality.load_method),
+                    quality.phase_week,
+                    quality.phase_week_count,
+                    quality.work_distance_km,
+                },
+            );
+            if (quality.previous_work_distance_km) |previous| {
+                try writer.print(
+                    " after {d:.1} km in the previous quality session",
+                    .{previous},
+                );
+            }
+            try writer.writeByte('\n');
+        }
     }
     try writer.writeAll("\nNo data was changed. Use `runningman plan apply FILE` after reviewing this preview.\n");
 }
@@ -482,7 +508,11 @@ fn sameWorkoutDecision(
         left_value.training_pace_anchor_seconds != right_value.training_pace_anchor_seconds or
         left_value.scheduled_weekday != right_value.scheduled_weekday or
         left_value.preferred_weekday != right_value.preferred_weekday or
-        left_value.preference_honored != right_value.preference_honored)
+        left_value.preference_honored != right_value.preference_honored or
+        !sameQualityProgression(
+            left_value.quality_progression,
+            right_value.quality_progression,
+        ))
     {
         return false;
     }
@@ -490,6 +520,24 @@ fn sameWorkoutDecision(
         if (!std.mem.eql(u8, left_rule, right_rule)) return false;
     }
     return true;
+}
+
+fn sameQualityProgression(
+    left: ?plan_provenance.QualityProgressionDecision,
+    right: ?plan_provenance.QualityProgressionDecision,
+) bool {
+    if (left == null or right == null) return left == null and right == null;
+    const left_value = left.?;
+    const right_value = right.?;
+    return std.mem.eql(u8, left_value.stage_id, right_value.stage_id) and
+        left_value.load_method == right_value.load_method and
+        left_value.phase_week == right_value.phase_week and
+        left_value.phase_week_count == right_value.phase_week_count and
+        left_value.work_distance_km == right_value.work_distance_km and
+        left_value.previous_work_distance_km == right_value.previous_work_distance_km and
+        left_value.repetition_distance_km == right_value.repetition_distance_km and
+        left_value.repetitions == right_value.repetitions and
+        left_value.recovery_seconds == right_value.recovery_seconds;
 }
 
 fn valueOrFallback(value: []const u8, fallback: []const u8) []const u8 {

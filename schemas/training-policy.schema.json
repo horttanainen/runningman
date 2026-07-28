@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/horttanainen/runningman/schemas/training-policy-v1.schema.json",
+  "$id": "https://github.com/horttanainen/runningman/schemas/training-policy.schema.json",
   "title": "Runningman training policy",
   "type": "object",
   "additionalProperties": false,
@@ -15,6 +15,7 @@
     "volume_progression",
     "recovery",
     "intensity_distribution",
+    "quality_progression",
     "long_run",
     "taper",
     "scheduling",
@@ -26,14 +27,13 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "policy_id": {
       "$ref": "#/$defs/non_empty_string"
     },
     "policy_version": {
-      "type": "integer",
-      "minimum": 1
+      "const": 2
     },
     "evidence_ledger_id": {
       "$ref": "#/$defs/non_empty_string"
@@ -55,6 +55,9 @@
     },
     "intensity_distribution": {
       "$ref": "#/$defs/intensity_distribution"
+    },
+    "quality_progression": {
+      "$ref": "#/$defs/quality_progression"
     },
     "long_run": {
       "$ref": "#/$defs/long_run"
@@ -376,6 +379,68 @@
         },
         "quality_effort_guidance": {
           "$ref": "#/$defs/non_empty_string"
+        }
+      }
+    },
+    "quality_progression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "target_weekly_distance_fraction",
+        "maximum_weekly_distance_fraction",
+        "maximum_session_distance_km",
+        "minimum_warmup_cooldown_km",
+        "maximum_warmup_cooldown_km",
+        "foundation_repetition_distance_km",
+        "foundation_initial_work_fraction",
+        "foundation_weekly_work_increase_km",
+        "interval_recovery_seconds",
+        "recovery_work_fraction",
+        "race_week_work_distance_km"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/rule_id"
+        },
+        "target_weekly_distance_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "maximum_weekly_distance_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "maximum_session_distance_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "minimum_warmup_cooldown_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "maximum_warmup_cooldown_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "foundation_repetition_distance_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "foundation_initial_work_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "foundation_weekly_work_increase_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "interval_recovery_seconds": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "recovery_work_fraction": {
+          "$ref": "#/$defs/fraction"
+        },
+        "race_week_work_distance_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
         }
       }
     },

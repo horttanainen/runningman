@@ -130,7 +130,7 @@ pub fn load(
 }
 
 pub fn validate(profile: RunnerProfile) !Summary {
-    if (profile.schema_version != 1) return error.UnsupportedRunnerProfileSchema;
+    if (profile.schema_version != 2) return error.UnsupportedRunnerProfileSchema;
     if (profile.profile_id.len == 0) return error.RunnerProfileIdRequired;
 
     const plan_start = date.parse(profile.plan_start_date.value) catch
@@ -278,7 +278,7 @@ fn printDuration(writer: *Io.Writer, total_seconds: u32) !void {
 
 fn validProfile() RunnerProfile {
     return .{
-        .schema_version = 1,
+        .schema_version = 2,
         .profile_id = "test-runner",
         .plan_start_date = .{ .value = "2026-07-20", .source = .user_entered },
         .goal = .{

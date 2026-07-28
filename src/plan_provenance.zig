@@ -4,7 +4,7 @@ const training_policy = @import("training_policy.zig");
 
 const Io = std.Io;
 
-pub const generator_version = "runningman-phase-1-v1";
+pub const generator_version = "runningman-planner-v2";
 
 pub const AssessmentSnapshot = struct {
     profile_id: []const u8,
@@ -25,7 +25,7 @@ pub const SourceHashes = struct {
 };
 
 pub const PlanProvenance = struct {
-    schema_version: u8 = 1,
+    schema_version: u8 = 2,
     generator_version: []const u8,
     runner_profile_sha256: []const u8,
     training_policy_sha256: []const u8,
@@ -62,6 +62,8 @@ pub const WeekDecision = struct {
     previous_long_run_distance_km: ?f64 = null,
     long_run_weekly_share_limit_km: f64,
     long_run_progression_limit_km: f64,
+    phase_week: u8,
+    phase_week_count: u8,
 };
 
 pub const PlanWeek = struct {
@@ -87,7 +89,7 @@ pub const DistanceMethod = enum {
     none,
     weekly_remainder,
     optional_weekly_fraction,
-    quality_weekly_fraction,
+    quality_progression,
     weekly_long_run,
     race_distance,
 };
@@ -98,6 +100,27 @@ pub const PaceMethod = enum {
     easy_anchor_offset,
     quality_anchor_offset,
     race_anchor,
+};
+
+pub const QualityLoadMethod = enum {
+    establish,
+    progress_work,
+    recovery_reduction,
+    race_specific_progression,
+    taper_reduction,
+    race_sharpening,
+};
+
+pub const QualityProgressionDecision = struct {
+    stage_id: []const u8,
+    load_method: QualityLoadMethod,
+    phase_week: u8,
+    phase_week_count: u8,
+    work_distance_km: f64,
+    previous_work_distance_km: ?f64 = null,
+    repetition_distance_km: ?f64 = null,
+    repetitions: u8,
+    recovery_seconds: ?u16 = null,
 };
 
 pub const WorkoutDecision = struct {
@@ -112,6 +135,7 @@ pub const WorkoutDecision = struct {
     scheduled_weekday: runner_profile.Weekday,
     preferred_weekday: ?runner_profile.Weekday = null,
     preference_honored: ?bool = null,
+    quality_progression: ?QualityProgressionDecision = null,
 };
 
 pub fn hashFile(
@@ -155,7 +179,7 @@ test "proposed plan schema is valid JSON" {
     _ = try std.json.parseFromSliceLeaky(
         std.json.Value,
         allocator,
-        @embedFile("../schemas/proposed-plan-v2.schema.json"),
+        @embedFile("../schemas/proposed-plan.schema.json"),
         .{},
     );
 }

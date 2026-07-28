@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/horttanainen/runningman/schemas/proposed-plan-v2.schema.json",
+  "$id": "https://github.com/horttanainen/runningman/schemas/proposed-plan.schema.json",
   "title": "Runningman proposed plan",
   "type": "object",
   "additionalProperties": false,
@@ -79,14 +79,14 @@
         "assessment"
       ],
       "properties": {
-        "schema_version": { "const": 1 },
-        "generator_version": { "const": "runningman-phase-1-v1" },
+        "schema_version": { "const": 2 },
+        "generator_version": { "const": "runningman-planner-v2" },
         "runner_profile_sha256": { "$ref": "#/$defs/sha256" },
         "training_policy_sha256": { "$ref": "#/$defs/sha256" },
         "evidence_ledger_id": { "$ref": "#/$defs/non_empty_string" },
         "evidence_ledger_sha256": { "$ref": "#/$defs/sha256" },
-        "runner_profile": { "$ref": "runner-profile-v1.schema.json" },
-        "training_policy": { "$ref": "training-policy-v1.schema.json" },
+        "runner_profile": { "$ref": "runner-profile.schema.json" },
+        "training_policy": { "$ref": "training-policy.schema.json" },
         "assessment": { "$ref": "#/$defs/assessment" }
       }
     },
@@ -97,7 +97,7 @@
       "properties": {
         "profile_id": { "$ref": "#/$defs/non_empty_string" },
         "policy_id": { "$ref": "#/$defs/non_empty_string" },
-        "policy_version": { "type": "integer", "minimum": 1 },
+        "policy_version": { "const": 2 },
         "confidence": { "enum": ["unavailable", "low", "moderate", "high"] },
         "feasibility": { "enum": ["completion", "recommended", "supported", "aspirational", "infeasible"] },
         "recommended_target_seconds": { "type": "integer", "minimum": 1 },
@@ -136,7 +136,9 @@
         "baseline_longest_run_km",
         "baseline_longest_run_source",
         "long_run_weekly_share_limit_km",
-        "long_run_progression_limit_km"
+        "long_run_progression_limit_km",
+        "phase_week",
+        "phase_week_count"
       ],
       "properties": {
         "periodization_rule_id": { "$ref": "#/$defs/non_empty_string" },
@@ -156,7 +158,9 @@
         "baseline_longest_run_source": { "$ref": "#/$defs/source" },
         "previous_long_run_distance_km": { "type": "number", "minimum": 0 },
         "long_run_weekly_share_limit_km": { "type": "number", "minimum": 0 },
-        "long_run_progression_limit_km": { "type": "number", "minimum": 0 }
+        "long_run_progression_limit_km": { "type": "number", "minimum": 0 },
+        "phase_week": { "type": "integer", "minimum": 1, "maximum": 24 },
+        "phase_week_count": { "type": "integer", "minimum": 1, "maximum": 24 }
       }
     },
     "workout": {
@@ -206,7 +210,7 @@
           "enum": ["rest", "easy", "optional_recovery", "quality", "long_run", "race"]
         },
         "distance_method": {
-          "enum": ["none", "weekly_remainder", "optional_weekly_fraction", "quality_weekly_fraction", "weekly_long_run", "race_distance"]
+          "enum": ["none", "weekly_remainder", "optional_weekly_fraction", "quality_progression", "weekly_long_run", "race_distance"]
         },
         "pace_method": {
           "enum": ["none", "effort_only", "easy_anchor_offset", "quality_anchor_offset", "race_anchor"]
@@ -216,7 +220,40 @@
         "training_pace_anchor_seconds": { "type": "integer", "minimum": 1 },
         "scheduled_weekday": { "$ref": "#/$defs/weekday" },
         "preferred_weekday": { "$ref": "#/$defs/weekday" },
-        "preference_honored": { "type": "boolean" }
+        "preference_honored": { "type": "boolean" },
+        "quality_progression": { "$ref": "#/$defs/quality_progression" }
+      }
+    },
+    "quality_progression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage_id",
+        "load_method",
+        "phase_week",
+        "phase_week_count",
+        "work_distance_km",
+        "repetitions"
+      ],
+      "properties": {
+        "stage_id": { "$ref": "#/$defs/non_empty_string" },
+        "load_method": {
+          "enum": [
+            "establish",
+            "progress_work",
+            "recovery_reduction",
+            "race_specific_progression",
+            "taper_reduction",
+            "race_sharpening"
+          ]
+        },
+        "phase_week": { "type": "integer", "minimum": 1, "maximum": 24 },
+        "phase_week_count": { "type": "integer", "minimum": 1, "maximum": 24 },
+        "work_distance_km": { "type": "number", "exclusiveMinimum": 0 },
+        "previous_work_distance_km": { "type": "number", "exclusiveMinimum": 0 },
+        "repetition_distance_km": { "type": "number", "exclusiveMinimum": 0 },
+        "repetitions": { "type": "integer", "minimum": 1, "maximum": 255 },
+        "recovery_seconds": { "type": "integer", "minimum": 1 }
       }
     },
     "segment": {

@@ -67,7 +67,7 @@ pub fn validate(
     }
 
     const provenance = revision.provenance;
-    if (provenance.schema_version != 1 or
+    if (provenance.schema_version != 2 or
         !std.mem.eql(u8, provenance.generator_version, plan_provenance.generator_version) or
         !plan_provenance.validSha256(provenance.runner_profile_sha256) or
         !plan_provenance.validSha256(provenance.training_policy_sha256) or
@@ -103,12 +103,14 @@ pub fn validate(
     var race_count: u8 = 0;
     var last_demanding: ?date.Date = null;
     var phase_stage: u8 = 0;
+    var previous_quality: ?plan_provenance.QualityProgressionDecision = null;
 
     const week_count = (revision.workouts.len + 6) / 7;
     const proposed_weeks = revision.weeks;
     if (proposed_weeks.len != week_count) return error.GeneratedWeeklySummaryCountMismatch;
     for (proposed_weeks, 0..) |week, index| {
         const decision = week.decision;
+        const phase_position = planPhasePosition(proposed_weeks, index);
         const expected_start = date.addDays(start, @intCast(index * 7));
         const expected_end = date.addDays(
             start,
@@ -121,7 +123,9 @@ pub fn validate(
         }
         if (!std.mem.eql(u8, decision.periodization_rule_id, policy.periodization.rule_id) or
             !std.mem.eql(u8, decision.volume_rule_id, policy.volume_progression.rule_id) or
-            !std.mem.eql(u8, decision.long_run_rule_id, policy.long_run.rule_id))
+            !std.mem.eql(u8, decision.long_run_rule_id, policy.long_run.rule_id) or
+            decision.phase_week != phase_position.week or
+            decision.phase_week_count != phase_position.count)
         {
             return error.GeneratedWeekDecisionMismatch;
         }
@@ -203,6 +207,18 @@ pub fn validate(
         if (std.mem.eql(u8, workout.kind, "quality")) {
             weeks[week_index].quality_sessions += 1;
             weeks[week_index].demanding_distance_km += distance_km;
+            const quality = decision.quality_progression orelse
+                return error.GeneratedQualityProgressionDecisionRequired;
+            try validateQualityProgression(
+                policy,
+                workout,
+                quality,
+                proposed_weeks[week_index],
+                previous_quality,
+            );
+            previous_quality = quality;
+        } else if (decision.quality_progression != null) {
+            return error.GeneratedQualityProgressionOnNonQualityWorkout;
         }
 
         const demanding = std.mem.eql(u8, workout.kind, "quality") or
@@ -232,6 +248,204 @@ pub fn validate(
         }
     }
     try validateWeeks(profile, policy, weeks);
+}
+
+const PlanPhasePosition = struct {
+    week: ?u8,
+    count: ?u8,
+};
+
+fn planPhasePosition(
+    weeks: []const plan_provenance.PlanWeek,
+    index: usize,
+) PlanPhasePosition {
+    var first = index;
+    while (first > 0 and
+        std.mem.eql(u8, weeks[first - 1].phase, weeks[index].phase))
+    {
+        first -= 1;
+    }
+    var final = index + 1;
+    while (final < weeks.len and
+        std.mem.eql(u8, weeks[final].phase, weeks[index].phase))
+    {
+        final += 1;
+    }
+    return .{
+        .week = @intCast(index - first + 1),
+        .count = @intCast(final - first),
+    };
+}
+
+fn validateQualityProgression(
+    policy: training_policy.Policy,
+    workout: plan_revision.ProposedWorkout,
+    quality: plan_provenance.QualityProgressionDecision,
+    week: plan_provenance.PlanWeek,
+    previous: ?plan_provenance.QualityProgressionDecision,
+) !void {
+    const progression = policy.quality_progression;
+    if (quality.stage_id.len == 0 or
+        quality.phase_week == 0 or
+        quality.phase_week_count == 0 or
+        quality.phase_week > quality.phase_week_count or
+        quality.work_distance_km <= 0 or
+        quality.repetitions == 0 or
+        quality.phase_week != week.decision.phase_week or
+        quality.phase_week_count != week.decision.phase_week_count)
+    {
+        return error.GeneratedQualityProgressionDecisionInvalid;
+    }
+    const expected_stage = expectedQualityStage(week.phase, quality.phase_week) orelse
+        return error.GeneratedQualityProgressionDecisionInvalid;
+    if (!std.mem.eql(u8, quality.stage_id, expected_stage.stage_id) or
+        quality.load_method != expected_stage.load_method)
+    {
+        return error.GeneratedQualityProgressionDecisionInvalid;
+    }
+    if (expected_stage.repetitions) {
+        const repetition_km = quality.repetition_distance_km orelse
+            return error.GeneratedQualityProgressionDecisionInvalid;
+        if (@abs(repetition_km -
+            progression.foundation_repetition_distance_km) > 0.01 or
+            quality.recovery_seconds != progression.interval_recovery_seconds)
+        {
+            return error.GeneratedQualityProgressionDecisionInvalid;
+        }
+    } else if (quality.repetition_distance_km != null or
+        quality.recovery_seconds != null or
+        quality.repetitions != 1)
+    {
+        return error.GeneratedQualityProgressionDecisionInvalid;
+    }
+    const allocated = try workoutDistance(workout);
+    if (allocated >
+        week.target_core_distance_km *
+            progression.maximum_weekly_distance_fraction + 0.01)
+    {
+        return error.GeneratedQualitySessionTooLong;
+    }
+    if (workout.segments.len != 3) {
+        return error.GeneratedQualityProgressionDecisionInvalid;
+    }
+    const work_segment = workout.segments[1];
+    const segment_distance = work_segment.distance_km orelse
+        return error.GeneratedQualityProgressionDecisionInvalid;
+    const represented_work = segment_distance *
+        @as(f64, @floatFromInt(work_segment.repetitions));
+    if (@abs(represented_work - quality.work_distance_km) > 0.01 or
+        work_segment.repetitions != quality.repetitions or
+        work_segment.recovery_seconds != quality.recovery_seconds)
+    {
+        return error.GeneratedQualityProgressionDecisionMismatch;
+    }
+    if (quality.repetition_distance_km) |repetition_km| {
+        if (@abs(repetition_km - segment_distance) > 0.01) {
+            return error.GeneratedQualityProgressionDecisionMismatch;
+        }
+    } else if (quality.repetitions != 1) {
+        return error.GeneratedQualityProgressionDecisionMismatch;
+    }
+
+    if (previous) |prior| {
+        const recorded_previous = quality.previous_work_distance_km orelse
+            return error.GeneratedQualityProgressionDecisionMismatch;
+        if (@abs(recorded_previous - prior.work_distance_km) > 0.01) {
+            return error.GeneratedQualityProgressionDecisionMismatch;
+        }
+        switch (quality.load_method) {
+            .establish => return error.GeneratedQualityProgressionInvalid,
+            .progress_work, .race_specific_progression => {
+                if (quality.work_distance_km + 0.01 < prior.work_distance_km) {
+                    return error.GeneratedQualityProgressionInvalid;
+                }
+            },
+            .recovery_reduction => {
+                if (quality.work_distance_km >= prior.work_distance_km - 0.01) {
+                    return error.GeneratedQualityRecoveryNotReduced;
+                }
+            },
+            .taper_reduction, .race_sharpening => {
+                if (quality.work_distance_km > prior.work_distance_km + 0.01) {
+                    return error.GeneratedQualityProgressionInvalid;
+                }
+            },
+        }
+        if (std.mem.eql(u8, quality.stage_id, prior.stage_id) and
+            quality.repetition_distance_km != null and
+            prior.repetition_distance_km != null)
+        {
+            const recovery_seconds = quality.recovery_seconds orelse
+                return error.GeneratedQualityProgressionDecisionInvalid;
+            const prior_recovery_seconds = prior.recovery_seconds orelse
+                return error.GeneratedQualityProgressionDecisionInvalid;
+            if (quality.repetition_distance_km.? + 0.01 <
+                prior.repetition_distance_km.? or
+                recovery_seconds > prior_recovery_seconds)
+            {
+                return error.GeneratedQualityDensityRegressed;
+            }
+        }
+    } else if (quality.previous_work_distance_km != null or
+        quality.load_method != .establish)
+    {
+        return error.GeneratedQualityProgressionDecisionMismatch;
+    }
+}
+
+const ExpectedQualityStage = struct {
+    stage_id: []const u8,
+    load_method: plan_provenance.QualityLoadMethod,
+    repetitions: bool,
+};
+
+fn expectedQualityStage(
+    phase: []const u8,
+    phase_week: u8,
+) ?ExpectedQualityStage {
+    if (std.mem.eql(u8, phase, "foundation")) {
+        return .{
+            .stage_id = "foundation-aerobic-intervals",
+            .load_method = if (phase_week == 1) .establish else .progress_work,
+            .repetitions = true,
+        };
+    }
+    if (std.mem.eql(u8, phase, "build")) {
+        return .{
+            .stage_id = "build-continuous-threshold",
+            .load_method = .progress_work,
+            .repetitions = false,
+        };
+    }
+    if (std.mem.eql(u8, phase, "recovery")) {
+        return .{
+            .stage_id = "recovery-aerobic-intervals",
+            .load_method = .recovery_reduction,
+            .repetitions = true,
+        };
+    }
+    if (std.mem.eql(u8, phase, "race_specific")) {
+        return .{
+            .stage_id = "race-specific-half-marathon-pace",
+            .load_method = .race_specific_progression,
+            .repetitions = false,
+        };
+    }
+    if (std.mem.eql(u8, phase, "taper")) {
+        return .{
+            .stage_id = "taper-half-marathon-pace",
+            .load_method = .taper_reduction,
+            .repetitions = false,
+        };
+    }
+    if (std.mem.eql(u8, phase, "race")) {
+        return .{
+            .stage_id = "race-week-sharpening",
+            .load_method = .race_sharpening,
+            .repetitions = false,
+        };
+    }
+    return null;
 }
 
 fn validateWeeks(

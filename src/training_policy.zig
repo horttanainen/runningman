@@ -83,6 +83,21 @@ pub const IntensityDistribution = struct {
     quality_effort_guidance: []const u8,
 };
 
+pub const QualityProgression = struct {
+    rule_id: []const u8,
+    target_weekly_distance_fraction: f64,
+    maximum_weekly_distance_fraction: f64,
+    maximum_session_distance_km: f64,
+    minimum_warmup_cooldown_km: f64,
+    maximum_warmup_cooldown_km: f64,
+    foundation_repetition_distance_km: f64,
+    foundation_initial_work_fraction: f64,
+    foundation_weekly_work_increase_km: f64,
+    interval_recovery_seconds: u16,
+    recovery_work_fraction: f64,
+    race_week_work_distance_km: f64,
+};
+
 pub const LongRun = struct {
     rule_id: []const u8,
     maximum_weekly_increase_km: f64,
@@ -142,6 +157,7 @@ pub const Policy = struct {
     volume_progression: VolumeProgression,
     recovery: Recovery,
     intensity_distribution: IntensityDistribution,
+    quality_progression: QualityProgression,
     long_run: LongRun,
     taper: Taper,
     scheduling: Scheduling,
@@ -184,10 +200,9 @@ pub fn validate(policy: Policy, ledger: evidence_ledger.Ledger) !void {
 }
 
 pub fn validateSnapshot(policy: Policy) !void {
-    if (policy.schema_version != 1) return error.UnsupportedTrainingPolicySchema;
-    if (policy.policy_id.len == 0 or policy.policy_version == 0) {
-        return error.TrainingPolicyIdentityRequired;
-    }
+    if (policy.schema_version != 2) return error.UnsupportedTrainingPolicySchema;
+    if (policy.policy_id.len == 0) return error.TrainingPolicyIdentityRequired;
+    if (policy.policy_version != 2) return error.UnsupportedTrainingPolicyVersion;
     if (policy.evidence_ledger_id.len == 0) return error.TrainingPolicyEvidenceLedgerRequired;
     if (policy.rules.len == 0) return error.TrainingPolicyNeedsRules;
 
@@ -196,6 +211,7 @@ pub fn validateSnapshot(policy: Policy) !void {
     try validatePeriodization(policy.periodization);
     try validateBaselineAssessment(policy.baseline_assessment);
     try validateProgression(policy);
+    try validateQualityProgression(policy);
     try validateWorkouts(policy);
     try validateRuleReferences(policy);
 }
@@ -412,6 +428,38 @@ fn validateProgression(policy: Policy) !void {
     }
 }
 
+fn validateQualityProgression(policy: Policy) !void {
+    const progression = policy.quality_progression;
+    if (!validFraction(progression.target_weekly_distance_fraction) or
+        !validFraction(progression.maximum_weekly_distance_fraction) or
+        progression.target_weekly_distance_fraction >
+            progression.maximum_weekly_distance_fraction or
+        progression.maximum_session_distance_km <= 0 or
+        !std.math.isFinite(progression.maximum_session_distance_km) or
+        progression.minimum_warmup_cooldown_km <= 0 or
+        !std.math.isFinite(progression.minimum_warmup_cooldown_km) or
+        progression.maximum_warmup_cooldown_km <
+            progression.minimum_warmup_cooldown_km or
+        !std.math.isFinite(progression.maximum_warmup_cooldown_km) or
+        progression.foundation_repetition_distance_km <= 0 or
+        !std.math.isFinite(progression.foundation_repetition_distance_km) or
+        !validFraction(progression.foundation_initial_work_fraction) or
+        progression.foundation_weekly_work_increase_km <= 0 or
+        !std.math.isFinite(progression.foundation_weekly_work_increase_km) or
+        progression.interval_recovery_seconds == 0 or
+        !validFraction(progression.recovery_work_fraction) or
+        progression.race_week_work_distance_km <= 0 or
+        !std.math.isFinite(progression.race_week_work_distance_km))
+    {
+        return error.InvalidQualityProgressionPolicy;
+    }
+    if (progression.maximum_session_distance_km <=
+        progression.minimum_warmup_cooldown_km * 2)
+    {
+        return error.InvalidQualityProgressionPolicy;
+    }
+}
+
 fn validateWorkouts(policy: Policy) !void {
     if (policy.workout_categories.len == 0 or policy.workout_recipes.len == 0) {
         return error.TrainingPolicyNeedsWorkoutRecipes;
@@ -449,6 +497,7 @@ fn validateWorkouts(policy: Policy) !void {
 }
 
 fn validateRuleReferences(policy: Policy) !void {
+    const quality_progression = policy.quality_progression;
     const rule_ids = [_][]const u8{
         policy.support.rule_id,
         policy.periodization.rule_id,
@@ -457,6 +506,7 @@ fn validateRuleReferences(policy: Policy) !void {
         policy.volume_progression.rule_id,
         policy.recovery.rule_id,
         policy.intensity_distribution.rule_id,
+        quality_progression.rule_id,
         policy.long_run.rule_id,
         policy.taper.rule_id,
         policy.scheduling.rule_id,
@@ -545,17 +595,29 @@ test "validates the committed half marathon policy and evidence links" {
     const ledger = try std.json.parseFromSliceLeaky(
         evidence_ledger.Ledger,
         allocator,
-        @embedFile("../evidence/half-marathon-v1.json"),
+        @embedFile("../evidence/half-marathon.json"),
         .{ .ignore_unknown_fields = false },
     );
     const policy = try std.json.parseFromSliceLeaky(
         Policy,
         allocator,
-        @embedFile("../policies/half-marathon-v1.json"),
+        @embedFile("../policies/half-marathon.json"),
         .{ .ignore_unknown_fields = false },
     );
     try evidence_ledger.validate(ledger);
     try validate(policy, ledger);
+}
+
+test "training policy schema is valid JSON" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    _ = try std.json.parseFromSliceLeaky(
+        std.json.Value,
+        arena.allocator(),
+        @embedFile("../schemas/training-policy.schema.json"),
+        .{},
+    );
 }
 
 test "rejects a policy rule without reciprocal evidence linkage" {
@@ -566,13 +628,13 @@ test "rejects a policy rule without reciprocal evidence linkage" {
     const ledger = try std.json.parseFromSliceLeaky(
         evidence_ledger.Ledger,
         allocator,
-        @embedFile("../evidence/half-marathon-v1.json"),
+        @embedFile("../evidence/half-marathon.json"),
         .{ .ignore_unknown_fields = false },
     );
     var policy = try std.json.parseFromSliceLeaky(
         Policy,
         allocator,
-        @embedFile("../policies/half-marathon-v1.json"),
+        @embedFile("../policies/half-marathon.json"),
         .{ .ignore_unknown_fields = false },
     );
     const rules = try allocator.dupe(Rule, policy.rules);

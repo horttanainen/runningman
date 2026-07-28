@@ -1,7 +1,9 @@
 const std = @import("std");
+const assessment = @import("assessment.zig");
 const date = @import("date.zig");
 const model = @import("model.zig");
 const store = @import("store.zig");
+const training_review = @import("training_review.zig");
 const workout_detail = @import("workout.zig");
 
 const Io = std.Io;
@@ -235,11 +237,61 @@ pub fn printMarkdown(
         }
         if (active_schedule.race_date.len != 0) {
             try writer.print("- Race date: {s}\n", .{active_schedule.race_date});
+            const race_date = try date.parse(active_schedule.race_date);
+            try writer.print("- Time from period end to race: {d} days\n", .{
+                @max(0, date.daysBetween(end, race_date)),
+            });
         }
         try writer.print("- Active schedule at period end: #{d} — {s}\n", .{
             active_schedule.id,
             active_schedule.name,
         });
+        if (active_schedule.plan_provenance) |provenance| {
+            try writer.print(
+                "- Planner: {s}; profile `{s}`; policy `{s}` v{d}; evidence `{s}`\n",
+                .{
+                    provenance.generator_version,
+                    provenance.assessment.profile_id,
+                    provenance.assessment.policy_id,
+                    provenance.assessment.policy_version,
+                    provenance.evidence_ledger_id,
+                },
+            );
+            try writer.print(
+                "- Source hashes: profile `{s}`; policy `{s}`; evidence `{s}`\n",
+                .{
+                    provenance.runner_profile_sha256,
+                    provenance.training_policy_sha256,
+                    provenance.evidence_ledger_sha256,
+                },
+            );
+            try writer.print(
+                "- Assessment: confidence {s}; feasibility {s}",
+                .{
+                    provenance.assessment.confidence,
+                    provenance.assessment.feasibility,
+                },
+            );
+            if (provenance.assessment.training_pace_anchor_seconds) |anchor| {
+                try writer.writeAll("; training anchor ");
+                try printDurationOnly(writer, anchor);
+            }
+            try writer.writeByte('\n');
+            if (assessment.assess(
+                provenance.runner_profile,
+                provenance.training_policy,
+            )) |recomputed| {
+                if (recomputed.supported_fast_seconds != null and
+                    recomputed.supported_slow_seconds != null)
+                {
+                    try writer.writeAll("- Supported race-date outcome range: ");
+                    try printDurationOnly(writer, recomputed.supported_fast_seconds.?);
+                    try writer.writeAll("–");
+                    try printDurationOnly(writer, recomputed.supported_slow_seconds.?);
+                    try writer.writeByte('\n');
+                }
+            } else |_| {}
+        }
         if (storage.schedules.get(storage.max_schedule_id)) |latest_schedule| {
             try writer.print("- Latest known schedule revision at export time: #{d}, effective {s}\n\n", .{
                 latest_schedule.id,
@@ -266,6 +318,14 @@ pub fn printMarkdown(
 
     try writer.writeAll("\n## Summary\n\n");
     try printSummaryMarkdown(writer, current);
+    const review_result = training_review.evaluate(storage, start, end);
+    try writer.writeByte('\n');
+    try training_review.printMarkdown(
+        writer,
+        review_result,
+        start_text,
+        end_text,
+    );
     try writer.writeAll("\n## Signals for review\n\n");
     try printSignalsMarkdown(writer, current, previous);
     try writer.writeAll("\n## Daily plan versus reality\n\n");
@@ -305,6 +365,77 @@ pub fn printMarkdown(
             try writer.writeAll("Not recorded");
         }
         try writer.writeAll(" |\n");
+    }
+
+    if (store.effectiveSchedule(storage, end)) |active_schedule| {
+        if (active_schedule.plan_provenance) |provenance| {
+            const policy = provenance.training_policy;
+            try writer.writeAll("\n## Applicable planning guardrails\n\n");
+            try writer.print(
+                "- `{s}` volume: build increases at most {d:.0}%; peak at most {d:.2} × baseline.\n",
+                .{
+                    policy.volume_progression.rule_id,
+                    policy.volume_progression.maximum_build_increase_fraction * 100,
+                    policy.volume_progression.maximum_peak_relative_to_baseline,
+                },
+            );
+            try writer.print(
+                "- `{s}` recovery: after {d}–{d} build weeks at {d:.0}–{d:.0}% of prior build volume.\n",
+                .{
+                    policy.recovery.rule_id,
+                    policy.recovery.minimum_build_weeks_between_recovery,
+                    policy.recovery.maximum_build_weeks_between_recovery,
+                    policy.recovery.minimum_volume_fraction * 100,
+                    policy.recovery.maximum_volume_fraction * 100,
+                },
+            );
+            try writer.print(
+                "- `{s}` intensity: {d:.0}–{d:.0}% low intensity; at most {d} quality sessions per week.\n",
+                .{
+                    policy.intensity_distribution.rule_id,
+                    policy.intensity_distribution.minimum_low_intensity_fraction * 100,
+                    policy.intensity_distribution.maximum_low_intensity_fraction * 100,
+                    policy.intensity_distribution.maximum_quality_sessions_per_week,
+                },
+            );
+            const quality = policy.quality_progression;
+            try writer.print(
+                "- `{s}` quality: at most {d:.0}% of core weekly distance and {d:.1} km per session; progression decisions must remain explicit.\n",
+                .{
+                    quality.rule_id,
+                    quality.maximum_weekly_distance_fraction * 100,
+                    quality.maximum_session_distance_km,
+                },
+            );
+            try writer.print(
+                "- `{s}` long run: increase at most {d:.1} km; at most {d:.0}% of weekly distance and {d:.1} km.\n",
+                .{
+                    policy.long_run.rule_id,
+                    policy.long_run.maximum_weekly_increase_km,
+                    policy.long_run.maximum_weekly_distance_fraction * 100,
+                    policy.long_run.maximum_peak_distance_km,
+                },
+            );
+            try writer.print(
+                "- `{s}` spacing: at least {d} easy/rest day between demanding sessions; `{s}` optional running remains removable; `{s}` missed work is never stacked.\n",
+                .{
+                    policy.scheduling.rule_id,
+                    policy.scheduling.minimum_easy_or_rest_days_between_demanding_sessions,
+                    policy.optional_run.rule_id,
+                    policy.missed_workout.rule_id,
+                },
+            );
+            try writer.print(
+                "- `{s}` taper: {d}–{d} days with {d:.0}–{d:.0}% volume reduction while retaining frequency and controlled intensity.\n",
+                .{
+                    policy.taper.rule_id,
+                    policy.taper.minimum_days,
+                    policy.taper.maximum_days,
+                    policy.taper.minimum_volume_reduction_fraction * 100,
+                    policy.taper.maximum_volume_reduction_fraction * 100,
+                },
+            );
+        }
     }
 
     try writer.writeAll("\n## Complete remaining program\n\n");

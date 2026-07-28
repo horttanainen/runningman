@@ -19,8 +19,8 @@ const workout_detail = @import("workout.zig");
 
 const Io = std.Io;
 const default_data_path = "runningman-data.jsonl";
-const default_policy_path = "policies/half-marathon-v1.json";
-const default_evidence_path = "evidence/half-marathon-v1.json";
+const default_policy_path = "policies/half-marathon.json";
+const default_evidence_path = "evidence/half-marathon.json";
 
 const LogCommand = struct {
     target_date: date.Date,
@@ -987,7 +987,7 @@ fn friendlyError(err: anyerror) []const u8 {
         error.InvalidProfileCommand => "profile requires `validate RUNNER_PROFILE.json`",
         error.RunnerProfileFileNotFound => "the runner profile JSON file was not found",
         error.InvalidRunnerProfileFile => "the runner profile is not valid JSON in the expected format",
-        error.UnsupportedRunnerProfileSchema => "runner profile schema_version must be 1",
+        error.UnsupportedRunnerProfileSchema => "runner profile schema_version must be 2",
         error.RunnerProfileIdRequired => "runner profile field `profile_id` cannot be empty",
         error.InvalidPlanStartDate => "runner profile field `plan_start_date.value` must be a real YYYY-MM-DD date",
         error.InvalidRaceDate => "runner profile field `goal.race_date.value` must be a real YYYY-MM-DD date",
@@ -1011,7 +1011,7 @@ fn friendlyError(err: anyerror) []const u8 {
         error.InvalidEvidenceCommand => "evidence requires `validate EVIDENCE_LEDGER.json`",
         error.EvidenceLedgerFileNotFound => "the evidence ledger JSON file was not found",
         error.InvalidEvidenceLedgerFile => "the evidence ledger is not valid JSON in the expected format",
-        error.UnsupportedEvidenceLedgerSchema => "evidence ledger schema_version must be 1",
+        error.UnsupportedEvidenceLedgerSchema => "evidence ledger schema_version must be 2",
         error.EvidenceLedgerIdRequired => "evidence ledger field `ledger_id` cannot be empty",
         error.EvidenceIdRequired => "every evidence entry needs a non-empty `evidence_id`",
         error.DuplicateEvidenceId => "evidence ledger field `evidence_id` must be unique",
@@ -1030,7 +1030,8 @@ fn friendlyError(err: anyerror) []const u8 {
         error.InvalidPolicyCommand => "policy requires `validate POLICY.json [--evidence EVIDENCE_LEDGER.json]`",
         error.TrainingPolicyFileNotFound => "the training policy JSON file was not found",
         error.InvalidTrainingPolicyFile => "the training policy is not valid JSON in the expected format",
-        error.UnsupportedTrainingPolicySchema => "training policy schema_version must be 1",
+        error.UnsupportedTrainingPolicySchema => "training policy schema_version must be 2",
+        error.UnsupportedTrainingPolicyVersion => "only training policy version 2 is supported",
         error.TrainingPolicyIdentityRequired => "training policy needs a non-empty policy_id and positive policy_version",
         error.TrainingPolicyEvidenceLedgerRequired => "training policy needs a non-empty evidence_ledger_id",
         error.TrainingPolicyEvidenceLedgerMismatch => "the policy and evidence ledger IDs do not match",
@@ -1058,6 +1059,7 @@ fn friendlyError(err: anyerror) []const u8 {
         error.InvalidWorkoutCategory => "every workout category needs an ID, intensity class, and description",
         error.DuplicateWorkoutCategory => "workout category IDs must be unique",
         error.InvalidWorkoutRecipe => "every workout recipe needs an ID, description, and at least one phase",
+        error.InvalidQualityProgressionPolicy => "quality-progression values are incomplete, inconsistent, or outside supported bounds",
         error.DuplicateWorkoutRecipe => "workout recipe IDs must be unique",
         error.UnknownWorkoutCategory => "a workout recipe refers to an unknown category",
         error.UnknownWorkoutPhase => "a workout recipe refers to an unknown phase",
@@ -1103,6 +1105,14 @@ fn friendlyError(err: anyerror) []const u8 {
         error.GeneratedWorkoutDecisionDistanceMismatch => "a generated workout decision records the wrong distance",
         error.UnknownGeneratedWorkoutKind => "the generator produced an unknown workout kind",
         error.GeneratedWorkoutRecipeNotFound => "the generator selected a workout recipe missing from the policy",
+        error.GeneratedQualityProgressionDecisionRequired => "every generated quality workout needs a structured progression decision",
+        error.GeneratedQualityProgressionOnNonQualityWorkout => "a non-quality workout contains a quality-progression decision",
+        error.GeneratedQualityProgressionDecisionInvalid => "a generated quality-progression decision is incomplete or invalid",
+        error.GeneratedQualityProgressionDecisionMismatch => "a generated quality-progression decision does not match its workout segments",
+        error.GeneratedQualitySessionTooLong => "a generated quality session exceeds its weekly-distance allowance",
+        error.GeneratedQualityProgressionInvalid => "generated quality work regresses during a loading progression",
+        error.GeneratedQualityRecoveryNotReduced => "generated recovery-week quality work is not reduced",
+        error.GeneratedQualityDensityRegressed => "generated interval density regresses without a stage transition",
         error.GeneratedDemandingSessionsTooClose => "generated demanding sessions do not have enough easy or rest days between them",
         error.GeneratedTooManyQualitySessions => "generated week exceeds the policy's quality-session limit",
         error.GeneratedIntensityDistributionInvalid => "generated low-intensity share is outside policy bounds",

@@ -643,7 +643,7 @@ fn parseTestPolicy(allocator: std.mem.Allocator) !training_policy.Policy {
     return std.json.parseFromSliceLeaky(
         training_policy.Policy,
         allocator,
-        @embedFile("../policies/half-marathon-v1.json"),
+        @embedFile("../policies/half-marathon.json"),
         .{ .ignore_unknown_fields = false },
     );
 }

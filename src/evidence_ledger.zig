@@ -58,7 +58,7 @@ pub fn load(
 }
 
 pub fn validate(ledger: Ledger) !void {
-    if (ledger.schema_version != 1) return error.UnsupportedEvidenceLedgerSchema;
+    if (ledger.schema_version != 2) return error.UnsupportedEvidenceLedgerSchema;
     if (ledger.ledger_id.len == 0) return error.EvidenceLedgerIdRequired;
 
     for (ledger.entries, 0..) |entry, index| {
@@ -118,7 +118,7 @@ fn isWebUrl(value: []const u8) bool {
 
 fn validLedger() Ledger {
     return .{
-        .schema_version = 1,
+        .schema_version = 2,
         .ledger_id = "test-ledger",
         .entries = &.{
             .{

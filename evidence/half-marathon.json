@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "ledger_id": "half-marathon-v1-evidence",
+  "schema_version": 2,
+  "ledger_id": "half-marathon-evidence",
   "entries": [
     {
       "evidence_id": "E-TID-001",

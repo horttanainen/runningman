@@ -35,28 +35,24 @@ pub fn printSchedule(
 ) !void {
     const provenance = schedule_value.plan_provenance orelse
         return error.PlanExplanationUnavailable;
+    if (provenance.schema_version != 2 or
+        provenance.training_policy.schema_version != 2 or
+        schedule_value.plan_weeks.len == 0)
+    {
+        return error.PlanExplanationUnavailable;
+    }
     try writer.print("Schedule #{d} explanation\n", .{schedule_value.id});
     try printAssessment(writer, provenance);
     if (target_date) |target| {
         const planned = store.workoutForDate(storage, schedule_value.id, target) orelse
             return error.NoScheduleForDate;
-        if (schedule_value.plan_weeks.len != 0) {
-            const week = weekForNumber(schedule_value.plan_weeks, planned.week);
-            if (week) |value| try printWeek(writer, provenance.training_policy, value);
-        } else {
-            try writer.writeAll(
-                "Week derivation record: unavailable for this previously applied schedule; " ++
-                    "the workout decision below was persisted.\n\n",
-            );
-        }
+        const week = weekForNumber(schedule_value.plan_weeks, planned.week) orelse
+            return error.PlanExplanationUnavailable;
+        try printWeek(writer, provenance.training_policy, week);
         try printStoredWorkout(writer, provenance.training_policy, planned);
         return;
     }
-    if (schedule_value.plan_weeks.len != 0) {
-        try printWeeks(writer, provenance.training_policy, schedule_value.plan_weeks);
-    } else {
-        try printDerivedWeeks(writer, storage, schedule_value, provenance.training_policy);
-    }
+    try printWeeks(writer, provenance.training_policy, schedule_value.plan_weeks);
 }
 
 fn printAssessment(writer: *Io.Writer, provenance: plan_provenance.PlanProvenance) !void {
@@ -133,8 +129,7 @@ fn printWeek(
     const decision = week.decision;
     try writer.print(
         "  Week {d} ({s}–{s}): {s}, {d:.1} km core, {d:.1} km long run\n" ++
-            "    Purpose: {s}\n" ++
-            "    Volume method: {s}",
+            "    Purpose: {s}",
         .{
             week.week,
             week.start_date,
@@ -143,9 +138,16 @@ fn printWeek(
             week.target_core_distance_km,
             week.long_run_distance_km,
             phasePurpose(policy, week.phase),
-            @tagName(decision.volume_method),
         },
     );
+    try writer.print(
+        "; phase week {d} of {d}\n",
+        .{
+            decision.phase_week,
+            decision.phase_week_count,
+        },
+    );
+    try writer.print("    Volume method: {s}", .{@tagName(decision.volume_method)});
     if (decision.previous_progression_distance_km) |previous| {
         try writer.print(" from {d:.1} km", .{previous});
     }
@@ -164,40 +166,6 @@ fn printWeek(
             decision.long_run_rule_id,
         },
     );
-}
-
-fn printDerivedWeeks(
-    writer: *Io.Writer,
-    storage: *const store.Store,
-    schedule_value: model.Schedule,
-    policy: training_policy.Policy,
-) !void {
-    try writer.writeAll(
-        "Macrocycle explanation\n" ++
-            "  Weekly derivation records were not persisted for this previously applied schedule.\n" ++
-            "  The following targets are reconstructed from persisted workout decisions.\n",
-    );
-    const start = try date.parse(schedule_value.start_date);
-    const race = try date.parse(schedule_value.race_date);
-    var current = start;
-    var previous_week: ?u8 = null;
-    while (date.compare(current, race) != .gt) : (current = date.addDays(current, 1)) {
-        const planned = store.workoutForDate(storage, schedule_value.id, current) orelse
-            return error.IncompleteParentSchedule;
-        if (previous_week != null and previous_week.? == planned.week) continue;
-        previous_week = planned.week;
-        const decision = planned.decision orelse return error.PlanWorkoutExplanationUnavailable;
-        try writer.print(
-            "  Week {d}: {s}, {d:.1} km core target\n" ++
-                "    Purpose: {s}\n",
-            .{
-                planned.week,
-                planned.phase,
-                decision.week_target_core_distance_km,
-                phasePurpose(policy, planned.phase),
-            },
-        );
-    }
 }
 
 fn printStoredWorkout(
@@ -253,6 +221,48 @@ fn printWorkout(
         try printDuration(writer, anchor);
     }
     try writer.writeByte('\n');
+    if (decision.quality_progression) |quality| {
+        try writer.print(
+            "  Quality progression: {s}; {s}; phase week {d} of {d}; " ++
+                "{d:.1} km work",
+            .{
+                quality.stage_id,
+                @tagName(quality.load_method),
+                quality.phase_week,
+                quality.phase_week_count,
+                quality.work_distance_km,
+            },
+        );
+        if (quality.previous_work_distance_km) |previous| {
+            const change = quality.work_distance_km - previous;
+            if (change >= 0) {
+                try writer.print(
+                    " (+{d:.1} km from the previous quality session)",
+                    .{change},
+                );
+            } else {
+                try writer.print(
+                    " ({d:.1} km from the previous quality session)",
+                    .{change},
+                );
+            }
+        }
+        if (quality.repetition_distance_km) |repetition_km| {
+            try writer.print(
+                "; {d} × {d:.1} km",
+                .{ quality.repetitions, repetition_km },
+            );
+            if (quality.recovery_seconds) |recovery_seconds| {
+                try writer.print(
+                    " with {d}:{d:0>2} recovery",
+                    .{ recovery_seconds / 60, recovery_seconds % 60 },
+                );
+            }
+        } else {
+            try writer.writeAll("; continuous work");
+        }
+        try writer.writeByte('\n');
+    }
     if (decision.preferred_weekday) |preferred| {
         try writer.print("  Scheduling: {s} preferred; {s} scheduled; preference {s}\n", .{
             @tagName(preferred),

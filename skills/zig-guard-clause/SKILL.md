@@ -11,7 +11,7 @@ calling module to explain the problem.
 
 ```zig
 pub fn validate(profile: RunnerProfile) !void {
-    if (profile.schema_version != 1) {
+    if (profile.schema_version != current_schema_version) {
         return error.UnsupportedRunnerProfileSchema;
     }
     if (profile.profile_id.len == 0) {

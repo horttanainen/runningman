@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/horttanainen/runningman/schemas/runner-profile-v1.schema.json",
+  "$id": "https://github.com/horttanainen/runningman/schemas/runner-profile.schema.json",
   "title": "Runningman runner profile",
   "type": "object",
   "additionalProperties": false,
@@ -15,7 +15,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "profile_id": {
       "type": "string",

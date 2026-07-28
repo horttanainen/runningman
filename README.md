@@ -10,13 +10,13 @@ records instead of silently changing history.
 
 ## Planner inputs and assessment
 
-Phase 1 of the general half-marathon planner begins with standalone, versioned
-runner-profile, evidence-ledger, and policy documents. Validate them:
+The general half-marathon planner uses standalone runner-profile,
+evidence-ledger, and policy documents. Validate them:
 
 ```sh
 ./zig-out/bin/runningman profile validate examples/runner-profile.json
-./zig-out/bin/runningman evidence validate evidence/half-marathon-v1.json
-./zig-out/bin/runningman policy validate policies/half-marathon-v1.json
+./zig-out/bin/runningman evidence validate evidence/half-marathon.json
+./zig-out/bin/runningman policy validate policies/half-marathon.json
 ```
 
 Assess the example runner's baseline and target:
@@ -61,10 +61,16 @@ Generate a deterministic proposal against an initialized append-only data file:
 ./zig-out/bin/runningman plan apply proposed-plan.json
 ```
 
-Generation allocates the macrocycle, weekly volume, long-run progression, and
-structured daily workouts before running an independent policy validator. The
-proposal is never applied automatically. With no supported pace anchor, the
-plan retains effort guidance without inventing pace or duration precision.
+Generation allocates the macrocycle, weekly volume, long-run progression,
+explicit quality-work progression, and structured daily workouts before
+running an independent policy validator. Quality sessions record their stage,
+phase position, work distance, repetition format, recovery, and whether the
+week establishes, progresses, reduces, tapers, or sharpens the load. In the
+foundation phase, progression adds whole 1 km repetitions while retaining the
+same 1 km repetition length and two-minute recovery; it no longer alternates
+between unrelated 1 km and 500 m formats. The proposal is never applied
+automatically. With no supported pace anchor, the plan retains effort guidance
+without inventing pace or duration precision.
 
 Generated proposals also embed deterministic provenance: the complete runner
 profile and policy snapshots, SHA-256 identities for the profile, policy, and
@@ -96,10 +102,10 @@ Explanation is read-only and never revises the schedule.
 
 The canonical JSON Schemas include:
 
-- [`schemas/runner-profile-v1.schema.json`](schemas/runner-profile-v1.schema.json)
-- [`schemas/evidence-ledger-v1.schema.json`](schemas/evidence-ledger-v1.schema.json)
-- [`schemas/training-policy-v1.schema.json`](schemas/training-policy-v1.schema.json)
-- [`schemas/proposed-plan-v2.schema.json`](schemas/proposed-plan-v2.schema.json)
+- [`schemas/runner-profile.schema.json`](schemas/runner-profile.schema.json)
+- [`schemas/evidence-ledger.schema.json`](schemas/evidence-ledger.schema.json)
+- [`schemas/training-policy.schema.json`](schemas/training-policy.schema.json)
+- [`schemas/proposed-plan.schema.json`](schemas/proposed-plan.schema.json)
 
 Runner inputs are represented as a `value` plus one of these sources:
 
@@ -114,8 +120,8 @@ assessment will recommend a supported target or outcome range. The
 `recent_performances.value` list may be empty, but it must still be present so
 that missing performance evidence is explicit.
 
-The first profile version supports half-marathon plans spanning 8–24 weeks and
-3–6 core running days. Profile validation also checks date ordering, day
+The current profile format supports half-marathon plans spanning 8–24 weeks
+and 3–6 core running days. Profile validation also checks date ordering, day
 availability, numeric baselines, recent performances, and known unavailable
 dates. The evidence ledger requires traceable citations, populations,
 comparisons, outcomes, limitations, confidence, planning implications, and
@@ -124,7 +130,7 @@ workout recipes, unique identifiers, and reciprocal links between every rule
 and evidence entry.
 
 The policy and assessment design is explained in
-[`docs/half-marathon-v1-policy.md`](docs/half-marathon-v1-policy.md).
+[`docs/half-marathon-policy.md`](docs/half-marathon-policy.md).
 
 ## Build and test
 
@@ -353,6 +359,10 @@ Generate a Markdown report:
 It contains:
 
 - Training goal, baseline, availability, and intensity guidance
+- Planner, profile, policy, evidence, source hashes, assessment, and race
+  context when generated provenance is available
+- A deterministic `KEEP_PLAN`, `REVIEW_REQUIRED`, or `INSUFFICIENT_DATA`
+  classification with every coverage and warning rule
 - Schedule revision history
 - Planned-versus-actual summary
 - Comparison signals
@@ -363,6 +373,20 @@ It contains:
 - Every remaining planned day through race day, including structured segments,
   pace ranges, and expected duration
 - The JSON contract for proposing a complete replacement program
+
+The local classifier uses review policy `runningman-review` version 2. It requires an
+explicit outcome for every core run and next-morning Sleep/Readiness coverage
+for at least half of eligible core runs. It requests review for a modified or
+missed core run, any recorded pain, a non-race RPE of 9–10, or at least two
+mornings below 70 for Sleep or Readiness. These thresholds are labeled as
+conservative product assumptions in the report. One unusual wearable score
+does not trigger review, missing activity is never treated as rest, and data
+after `--ending` is excluded from classification.
+
+Classification is read-only: it does not automatically reduce, hold, progress,
+or replace the schedule. This keeps the program from making a medical or
+training-load decision from an unsupported threshold. Any replacement still
+uses the independently validated preview/apply workflow below.
 
 The raw audit log can also be exported:
 
@@ -390,11 +414,11 @@ After inspecting the full preview, apply it:
 ./zig-out/bin/runningman plan apply revised-program.json
 ```
 
-Revision files use only
-[`proposed-plan-v2`](schemas/proposed-plan-v2.schema.json). The complete document
-must preserve its planner provenance, assessment, macrocycle weeks, and the
-structured decision attached to every week and workout. Schema version 1
-proposal files are rejected.
+Revision files use only the
+[`proposed-plan` schema](schemas/proposed-plan.schema.json). The complete
+document must preserve its planner provenance, assessment, macrocycle weeks,
+and the structured decision attached to every week and workout. Unsupported
+proposal schema versions are rejected.
 
 The easiest starting point for a revised program is a newly generated complete
 proposal. It must contain one workout or rest entry for every consecutive date
@@ -418,7 +442,7 @@ when they were logged.
 
 ## Data model
 
-Every JSON line has `schema_version: 1` and one of these event types:
+Every JSON line has `schema_version: 2` and one of these event types:
 
 - `schedule`: immutable context, revision metadata, provenance, and weekly
   decisions when available

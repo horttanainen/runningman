@@ -10,6 +10,21 @@ const training_policy = @import("training_policy.zig");
 
 const Io = std.Io;
 
+const QualityPlan = struct {
+    stage_id: []const u8,
+    load_method: plan_provenance.QualityLoadMethod,
+    phase_week: u8,
+    phase_week_count: u8,
+    session_km: f64,
+    warmup_km: f64,
+    work_km: f64,
+    cooldown_km: f64,
+    previous_work_km: ?f64,
+    repetition_km: ?f64,
+    repetitions: u8,
+    recovery_seconds: ?u16,
+};
+
 const MacroWeek = struct {
     phase: []const u8,
     target_km: f64,
@@ -20,6 +35,9 @@ const MacroWeek = struct {
     previous_long_km: ?f64,
     long_weekly_share_limit_km: f64,
     long_progression_limit_km: f64,
+    phase_week: u8,
+    phase_week_count: u8,
+    quality: QualityPlan,
 };
 
 const PaceProfile = struct {
@@ -105,7 +123,7 @@ pub fn generate(
         .schema_version = 2,
         .base_schedule_id = base_schedule_id,
         .effective_from = profile.plan_start_date.value,
-        .reason = "Generated from runner profile and half-marathon-v1 policy.",
+        .reason = "Generated from runner profile and half-marathon policy.",
         .name = "Generated periodized half-marathon plan",
         .goal = target_text,
         .availability = availability,
@@ -173,6 +191,8 @@ fn buildProposedWeeks(
                 .previous_long_run_distance_km = week.previous_long_km,
                 .long_run_weekly_share_limit_km = week.long_weekly_share_limit_km,
                 .long_run_progression_limit_km = week.long_progression_limit_km,
+                .phase_week = week.phase_week,
+                .phase_week_count = week.phase_week_count,
             },
         };
     }
@@ -297,7 +317,175 @@ fn buildMacrocycle(
         week.long_km = floorHalf(desired);
         prior_long = week.long_km;
     }
+    try buildQualityProgression(policy, weeks);
     return weeks;
+}
+
+fn buildQualityProgression(
+    policy: training_policy.Policy,
+    weeks: []MacroWeek,
+) !void {
+    const progression = policy.quality_progression;
+    var previous_work_km: ?f64 = null;
+
+    for (weeks, 0..) |*week, index| {
+        const phase_position = phasePosition(weeks, index);
+        week.phase_week = phase_position.week;
+        week.phase_week_count = phase_position.count;
+        week.quality = qualityPlan(
+            progression,
+            week.phase,
+            week.target_km,
+            phase_position.week,
+            phase_position.count,
+            previous_work_km,
+        );
+        previous_work_km = week.quality.work_km;
+    }
+}
+
+const PhasePosition = struct {
+    week: u8,
+    count: u8,
+};
+
+fn phasePosition(weeks: []const MacroWeek, index: usize) PhasePosition {
+    var first = index;
+    while (first > 0 and std.mem.eql(u8, weeks[first - 1].phase, weeks[index].phase)) {
+        first -= 1;
+    }
+    var final = index + 1;
+    while (final < weeks.len and std.mem.eql(u8, weeks[final].phase, weeks[index].phase)) {
+        final += 1;
+    }
+    return .{
+        .week = @intCast(index - first + 1),
+        .count = @intCast(final - first),
+    };
+}
+
+fn qualityPlan(
+    progression: training_policy.QualityProgression,
+    phase: []const u8,
+    target_km: f64,
+    phase_week: u8,
+    phase_week_count: u8,
+    previous_work_km: ?f64,
+) QualityPlan {
+    const minimum_support_km = progression.minimum_warmup_cooldown_km * 2;
+    const weekly_target = target_km * progression.target_weekly_distance_fraction;
+    const weekly_cap = target_km * progression.maximum_weekly_distance_fraction;
+    var session_km = roundHalf(@min(progression.maximum_session_distance_km, weekly_target));
+    var stage_id: []const u8 = "build-threshold";
+    var load_method: plan_provenance.QualityLoadMethod = .progress_work;
+    var work_km: f64 = 0;
+    var repetition_km: ?f64 = null;
+    var recovery_seconds: ?u16 = null;
+
+    if (std.mem.eql(u8, phase, "foundation")) {
+        stage_id = "foundation-aerobic-intervals";
+        load_method = if (phase_week == 1) .establish else .progress_work;
+        repetition_km = progression.foundation_repetition_distance_km;
+        recovery_seconds = progression.interval_recovery_seconds;
+        const desired_work = target_km * progression.foundation_initial_work_fraction +
+            @as(f64, @floatFromInt(phase_week - 1)) *
+                progression.foundation_weekly_work_increase_km;
+        work_km = roundToMultiple(desired_work, repetition_km.?);
+    } else if (std.mem.eql(u8, phase, "build")) {
+        stage_id = "build-continuous-threshold";
+        work_km = @max(
+            previous_work_km orelse 0,
+            roundHalf(
+                session_km * 0.5 +
+                    @as(f64, @floatFromInt(phase_week - 1)) * 0.5,
+            ),
+        );
+    } else if (std.mem.eql(u8, phase, "recovery")) {
+        stage_id = "recovery-aerobic-intervals";
+        load_method = .recovery_reduction;
+        repetition_km = progression.foundation_repetition_distance_km;
+        recovery_seconds = progression.interval_recovery_seconds;
+        const previous = previous_work_km orelse
+            target_km * progression.foundation_initial_work_fraction;
+        work_km = roundToMultiple(
+            previous * progression.recovery_work_fraction,
+            repetition_km.?,
+        );
+    } else if (std.mem.eql(u8, phase, "race_specific")) {
+        stage_id = "race-specific-half-marathon-pace";
+        load_method = .race_specific_progression;
+        work_km = @max(
+            previous_work_km orelse 0,
+            roundHalf(
+                session_km * 0.5 +
+                    @as(f64, @floatFromInt(phase_week - 1)) * 0.5,
+            ),
+        );
+    } else if (std.mem.eql(u8, phase, "taper")) {
+        stage_id = "taper-half-marathon-pace";
+        load_method = .taper_reduction;
+        work_km = roundHalf(session_km * 0.45);
+    } else {
+        stage_id = "race-week-sharpening";
+        load_method = .race_sharpening;
+        work_km = @min(
+            progression.race_week_work_distance_km,
+            previous_work_km orelse progression.race_week_work_distance_km,
+        );
+        session_km = work_km + minimum_support_km;
+    }
+
+    const maximum_work = @max(1.0, session_km - minimum_support_km);
+    work_km = @min(work_km, maximum_work);
+    if (repetition_km) |distance_km| {
+        work_km = @max(distance_km, floorToMultiple(work_km, distance_km));
+    } else {
+        work_km = @max(1.0, roundHalf(work_km));
+    }
+    session_km = @max(session_km, work_km + minimum_support_km);
+    session_km = @min(
+        session_km,
+        work_km + progression.maximum_warmup_cooldown_km * 2,
+    );
+    session_km = @min(session_km, floorHalf(weekly_cap));
+
+    const support_km = session_km - work_km;
+    var warmup_km = roundHalf(@min(
+        progression.maximum_warmup_cooldown_km,
+        @max(progression.minimum_warmup_cooldown_km, support_km / 2),
+    ));
+    var cooldown_km = support_km - warmup_km;
+    if (cooldown_km < progression.minimum_warmup_cooldown_km) {
+        cooldown_km = progression.minimum_warmup_cooldown_km;
+        warmup_km = support_km - cooldown_km;
+    }
+
+    const repetitions: u8 = if (repetition_km) |distance_km|
+        @intFromFloat(@round(work_km / distance_km))
+    else
+        1;
+    return .{
+        .stage_id = stage_id,
+        .load_method = load_method,
+        .phase_week = phase_week,
+        .phase_week_count = phase_week_count,
+        .session_km = session_km,
+        .warmup_km = warmup_km,
+        .work_km = work_km,
+        .cooldown_km = cooldown_km,
+        .previous_work_km = previous_work_km,
+        .repetition_km = repetition_km,
+        .repetitions = repetitions,
+        .recovery_seconds = recovery_seconds,
+    };
+}
+
+fn roundToMultiple(value: f64, multiple: f64) f64 {
+    return @round(value / multiple) * multiple;
+}
+
+fn floorToMultiple(value: f64, multiple: f64) f64 {
+    return @floor(value / multiple) * multiple;
 }
 
 fn allocateWorkouts(
@@ -347,10 +535,7 @@ fn allocateWorkouts(
             return error.NotEnoughAvailableRunningDays;
         }
 
-        const quality_km = if (quality_day != null)
-            roundHalf(@min(8.0, @max(2.0, week.target_km * 0.20)))
-        else
-            0;
+        const quality_km = if (quality_day != null) week.quality.session_km else 0;
         const reserved_race = if (std.mem.eql(u8, week.phase, "race")) policy.support.race_distance_km else 0;
         const easy_count = core_run_count - @intFromBool(long_day != null) - @intFromBool(quality_day != null);
         const easy_total = @max(0.0, week.target_km - week.long_km - quality_km - reserved_race);
@@ -385,7 +570,7 @@ fn allocateWorkouts(
                     allocator,
                     text,
                     week.phase,
-                    quality_km,
+                    week.quality,
                     paces,
                     policy,
                 );
@@ -436,6 +621,10 @@ fn allocateWorkouts(
                 week.target_km,
                 weekday,
                 training_pace_anchor_seconds,
+                if (std.mem.eql(u8, workouts[output_index].kind, "quality"))
+                    week.quality
+                else
+                    null,
             );
             output_index += 1;
         }
@@ -469,6 +658,7 @@ fn workoutDecision(
     week_target_km: f64,
     scheduled_weekday: runner_profile.Weekday,
     training_pace_anchor_seconds: ?u32,
+    quality_plan: ?QualityPlan,
 ) !plan_provenance.WorkoutDecision {
     const role: plan_provenance.AllocationRole = if (std.mem.eql(u8, workout.kind, "rest"))
         .rest
@@ -533,7 +723,7 @@ fn workoutDecision(
         .rest => .none,
         .easy => .weekly_remainder,
         .optional_recovery => .optional_weekly_fraction,
-        .quality => .quality_weekly_fraction,
+        .quality => .quality_progression,
         .long_run => .weekly_long_run,
         .race => .race_distance,
     };
@@ -563,6 +753,17 @@ fn workoutDecision(
             preferred == scheduled_weekday
         else
             null,
+        .quality_progression = if (quality_plan) |quality| .{
+            .stage_id = quality.stage_id,
+            .load_method = quality.load_method,
+            .phase_week = quality.phase_week,
+            .phase_week_count = quality.phase_week_count,
+            .work_distance_km = quality.work_km,
+            .previous_work_distance_km = quality.previous_work_km,
+            .repetition_distance_km = quality.repetition_km,
+            .repetitions = quality.repetitions,
+            .recovery_seconds = quality.recovery_seconds,
+        } else null,
     };
 }
 
@@ -712,38 +913,36 @@ fn qualityWorkout(
     allocator: std.mem.Allocator,
     date_text: []const u8,
     phase: []const u8,
-    total_km: f64,
+    quality: QualityPlan,
     paces: PaceProfile,
     policy: training_policy.Policy,
 ) !plan_revision.ProposedWorkout {
-    const warmup = roundHalf(@min(2.0, total_km * 0.25));
-    const cooldown = warmup;
-    const work = @max(1.0, roundHalf(total_km - warmup - cooldown));
-    const is_intervals = std.mem.eql(u8, phase, "foundation") or
-        std.mem.eql(u8, phase, "recovery");
+    const is_intervals = quality.repetition_km != null;
     const label = if (is_intervals)
         "Aerobic intervals"
     else if (std.mem.eql(u8, phase, "race_specific") or std.mem.eql(u8, phase, "taper"))
         "Continuous half-marathon-pace segment"
     else if (std.mem.eql(u8, phase, "build"))
         "Continuous threshold segment"
+    else if (std.mem.eql(u8, phase, "race"))
+        "Race-week half-marathon-pace sharpening"
     else
         "Continuous controlled segment";
-    const work_fast = if (std.mem.eql(u8, phase, "race_specific") or std.mem.eql(u8, phase, "taper"))
+    const work_fast = if (std.mem.eql(u8, phase, "race_specific") or
+        std.mem.eql(u8, phase, "taper") or std.mem.eql(u8, phase, "race"))
         paces.race_fast
     else
         paces.quality_fast;
-    const work_slow = if (std.mem.eql(u8, phase, "race_specific") or std.mem.eql(u8, phase, "taper"))
+    const work_slow = if (std.mem.eql(u8, phase, "race_specific") or
+        std.mem.eql(u8, phase, "taper") or std.mem.eql(u8, phase, "race"))
         paces.race_slow
     else
         paces.quality_slow;
-    const repetitions = if (is_intervals) intervalRepetitions(work) else 1;
-    const work_distance_km = work / @as(f64, @floatFromInt(repetitions));
     const segments = try allocator.alloc(model.Segment, 3);
     segments[0] = .{
         .kind = if (paces.anchored) "distance" else "effort-distance",
         .label = "Warm-up",
-        .distance_km = warmup,
+        .distance_km = quality.warmup_km,
         .pace_fast_seconds_per_km = if (paces.anchored) paces.easy_fast else null,
         .pace_slow_seconds_per_km = if (paces.anchored) paces.easy_slow else null,
     };
@@ -755,27 +954,29 @@ fn qualityWorkout(
         else
             "effort-distance",
         .label = label,
-        .repetitions = repetitions,
-        .distance_km = work_distance_km,
+        .repetitions = quality.repetitions,
+        .distance_km = quality.repetition_km orelse quality.work_km,
         .pace_fast_seconds_per_km = if (paces.anchored) work_fast else null,
         .pace_slow_seconds_per_km = if (paces.anchored) work_slow else null,
-        .recovery_seconds = if (is_intervals) 120 else null,
+        .recovery_seconds = quality.recovery_seconds,
     };
     segments[2] = .{
         .kind = if (paces.anchored) "distance" else "effort-distance",
         .label = "Cooldown",
-        .distance_km = cooldown,
+        .distance_km = quality.cooldown_km,
         .pace_fast_seconds_per_km = if (paces.anchored) paces.easy_fast else null,
         .pace_slow_seconds_per_km = if (paces.anchored) paces.easy_slow else null,
     };
     const details = if (is_intervals)
         try std.fmt.allocPrint(
             allocator,
-            "Aerobic intervals: {d} repetitions totalling {d:.1} km, with 2:00 easy recovery between repetitions; {d:.1} km total excluding recovery distance. {s}",
+            "Aerobic intervals: {d} repetitions totalling {d:.1} km, with {d}:{d:0>2} easy recovery between repetitions; {d:.1} km total excluding recovery distance. {s}",
             .{
-                repetitions,
-                work,
-                warmup + work + cooldown,
+                quality.repetitions,
+                quality.work_km,
+                quality.recovery_seconds.? / 60,
+                quality.recovery_seconds.? % 60,
+                quality.session_km,
                 policy.intensity_distribution.quality_effort_guidance,
             },
         )
@@ -785,8 +986,8 @@ fn qualityWorkout(
             "{s}: {d:.1} km continuous; {d:.1} km total. {s}",
             .{
                 label,
-                work,
-                warmup + work + cooldown,
+                quality.work_km,
+                quality.session_km,
                 policy.intensity_distribution.quality_effort_guidance,
             },
         );
@@ -796,8 +997,8 @@ fn qualityWorkout(
         .kind = "quality",
         .intensity = "High",
         .details = details,
-        .distance_min_km = warmup + work + cooldown,
-        .distance_max_km = warmup + work + cooldown,
+        .distance_min_km = quality.session_km,
+        .distance_max_km = quality.session_km,
         .segments = segments,
     };
 }
@@ -898,9 +1099,79 @@ fn floorHalf(value: f64) f64 {
     return @floor(value * 2) / 2;
 }
 
-fn intervalRepetitions(work_distance_km: f64) u8 {
-    const half_kilometres: u8 = @intFromFloat(@round(work_distance_km * 2));
-    if (half_kilometres <= 2) return 2;
-    if (half_kilometres % 2 == 0) return half_kilometres / 2;
-    return half_kilometres;
+test "foundation quality work progresses without changing repetition length" {
+    const progression = testQualityProgression();
+    const first = qualityPlan(
+        progression,
+        "foundation",
+        30,
+        1,
+        2,
+        null,
+    );
+    const second = qualityPlan(
+        progression,
+        "foundation",
+        32.5,
+        2,
+        2,
+        first.work_km,
+    );
+
+    try std.testing.expectEqual(@as(f64, 3), first.work_km);
+    try std.testing.expectEqual(@as(u8, 3), first.repetitions);
+    try std.testing.expectEqual(@as(f64, 1), first.repetition_km.?);
+    try std.testing.expectEqual(@as(f64, 4), second.work_km);
+    try std.testing.expectEqual(@as(u8, 4), second.repetitions);
+    try std.testing.expectEqual(@as(f64, 1), second.repetition_km.?);
+    try std.testing.expectEqual(@as(u16, 120), second.recovery_seconds.?);
+}
+
+test "quality plan reduces work for recovery and race-week sharpening" {
+    const progression = testQualityProgression();
+    const recovery = qualityPlan(
+        progression,
+        "recovery",
+        32.5,
+        1,
+        1,
+        4.5,
+    );
+    const race = qualityPlan(
+        progression,
+        "race",
+        33.0975,
+        1,
+        1,
+        2.5,
+    );
+
+    try std.testing.expectEqual(
+        plan_provenance.QualityLoadMethod.recovery_reduction,
+        recovery.load_method,
+    );
+    try std.testing.expectEqual(@as(f64, 3), recovery.work_km);
+    try std.testing.expectEqual(
+        plan_provenance.QualityLoadMethod.race_sharpening,
+        race.load_method,
+    );
+    try std.testing.expectEqual(@as(f64, 2), race.work_km);
+    try std.testing.expectEqual(@as(f64, 4), race.session_km);
+}
+
+fn testQualityProgression() training_policy.QualityProgression {
+    return .{
+        .rule_id = "RECIPE-01",
+        .target_weekly_distance_fraction = 0.2,
+        .maximum_weekly_distance_fraction = 0.22,
+        .maximum_session_distance_km = 8,
+        .minimum_warmup_cooldown_km = 1,
+        .maximum_warmup_cooldown_km = 2,
+        .foundation_repetition_distance_km = 1,
+        .foundation_initial_work_fraction = 0.1,
+        .foundation_weekly_work_increase_km = 1,
+        .interval_recovery_seconds = 120,
+        .recovery_work_fraction = 0.75,
+        .race_week_work_distance_km = 2,
+    };
 }
