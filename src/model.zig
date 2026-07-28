@@ -14,6 +14,11 @@ pub const ActivityStatus = enum {
     rested,
 };
 
+pub const Sport = enum {
+    running,
+    cycling,
+};
+
 pub const Schedule = struct {
     id: u64,
     parent_schedule_id: ?u64,
@@ -68,6 +73,7 @@ pub const Activity = struct {
     schedule_id: u64,
     workout_id: u64,
     date: []const u8,
+    sport: Sport,
     status: ActivityStatus,
     distance_km: ?f64,
     duration_seconds: ?u32,
@@ -126,6 +132,7 @@ pub const Event = struct {
     decision: ?plan_provenance.WorkoutDecision = null,
 
     status: ?ActivityStatus = null,
+    sport: ?Sport = null,
     supersedes_activity_id: ?u64 = null,
     distance_km: ?f64 = null,
     duration_seconds: ?u32 = null,
@@ -193,6 +200,7 @@ pub fn activityEvent(value: Activity) Event {
         .schedule_id = value.schedule_id,
         .workout_id = value.workout_id,
         .date = value.date,
+        .sport = value.sport,
         .status = value.status,
         .distance_km = value.distance_km,
         .duration_seconds = value.duration_seconds,

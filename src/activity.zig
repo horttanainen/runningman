@@ -2,6 +2,7 @@ const std = @import("std");
 const model = @import("model.zig");
 
 pub const Input = struct {
+    sport: model.Sport = .running,
     status: model.ActivityStatus = .completed,
     distance_km: ?f64 = null,
     duration_seconds: ?u32 = null,
@@ -50,6 +51,7 @@ pub fn make(
         .schedule_id = schedule_id,
         .workout_id = workout_id,
         .date = date_text,
+        .sport = input.sport,
         .status = input.status,
         .distance_km = input.distance_km,
         .duration_seconds = input.duration_seconds,
@@ -62,6 +64,15 @@ pub fn make(
         .notes = input.notes,
         .recorded_at = recorded_at,
     };
+}
+
+pub fn parseSport(text: []const u8) !model.Sport {
+    inline for (std.meta.fields(model.Sport)) |field| {
+        if (std.ascii.eqlIgnoreCase(text, field.name)) {
+            return @enumFromInt(field.value);
+        }
+    }
+    return error.InvalidSport;
 }
 
 pub fn parseStatus(text: []const u8) !model.ActivityStatus {
@@ -123,6 +134,12 @@ test "validates useful coaching signals" {
         .status = .modified,
         .distance_km = 6,
     }));
+}
+
+test "sport parser accepts supported activity modes" {
+    try std.testing.expectEqual(model.Sport.running, try parseSport("running"));
+    try std.testing.expectEqual(model.Sport.cycling, try parseSport("CYCLING"));
+    try std.testing.expectError(error.InvalidSport, parseSport("swimming"));
 }
 
 test "duration parser" {

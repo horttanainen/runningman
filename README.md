@@ -195,7 +195,8 @@ With no command, `runningman` shows today:
 
 The output includes the phase, workout instructions, intensity, distance,
 segment pace ranges, time implied by each distance/pace pair, expected total
-time, schedule revision ID, workout ID, and any recorded result.
+time, a time-and-effort-matched bicycle replacement, schedule revision ID,
+workout ID, and any recorded result.
 
 See a detailed upcoming schedule, starting today by default:
 
@@ -203,6 +204,34 @@ See a detailed upcoming schedule, starting today by default:
 ./zig-out/bin/runningman schedule --weeks 4
 ./zig-out/bin/runningman schedule --weeks 4 --from 2026-07-20
 ```
+
+### Bicycle replacements
+
+Every non-rest running workout includes a bicycle option derived from the
+planned segment durations. Repetitions, recovery periods, recovery-week
+reductions, taper reductions, and the distinction between easy and demanding
+work are retained. Bicycle distance is deliberately not prescribed because
+terrain, wind, equipment, and cycling economy make a kilometre conversion
+misleading.
+
+The replacement uses the same planned time and a cycling-specific RPE target as
+a conservative field approximation. It is not presented as a proven 1:1
+physiological equivalence. Running and cycling can produce different heart-rate
+and oxygen-uptake responses at apparently matched effort, and running-specific
+mechanical preparation is not replaced. The 2026
+[systematic review and meta-analysis](https://doi.org/10.3389/fspor.2026.1843803)
+found no clear short- to medium-term difference in the limited studies, but
+explicitly concluded that the evidence does not establish interchangeability.
+The mode-dependent RPE/heart-rate response is supported by
+[Hassmén (1990)](https://doi.org/10.1007/BF00705035), and an acute matched-HIIT
+comparison found different cardiorespiratory responses between running and
+cycling
+([Scanlan et al.](https://pubmed.ncbi.nlm.nih.gov/36203053/)).
+
+Use bike-specific power or heart-rate zones when they have been established
+from cycling. Otherwise follow the displayed RPE and breathing cues. Stop if
+cycling produces knee pain. The half-marathon race itself has no equivalent
+bicycle replacement.
 
 ## Record morning recovery
 
@@ -269,6 +298,19 @@ recovery signal in weekly reports.
 
 Duration accepts whole minutes (`44`), minutes and seconds (`44:30`), or hours,
 minutes, and seconds (`1:03:10`).
+
+Record a bicycle replacement by sport and duration. Bicycle kilometres remain
+separate from running volume in reports:
+
+```sh
+./zig-out/bin/runningman log 2026-07-28 \
+  --sport cycling \
+  --duration 43:00 \
+  --avg-hr 138 \
+  --rpe 7 \
+  --pain 0 \
+  --notes "Completed the prescribed bicycle intervals"
+```
 
 ## Import a Polar Beat screenshot
 

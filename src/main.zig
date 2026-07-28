@@ -676,8 +676,9 @@ fn printDay(writer: *Io.Writer, storage: *const store.Store, target_date: date.D
     } else {
         try writer.print(
             "\nRecord it interactively:\n  runningman log {s}\n\n" ++
-                "Or with flags:\n  runningman log {s} --distance KM --duration MM:SS --avg-hr BPM --rpe 1-10 --pain 0-10 --notes \"...\"\n",
-            .{ planned.date, planned.date },
+                "Or record the bicycle replacement:\n  runningman log {s} --sport cycling --duration MM:SS --avg-hr BPM --rpe 1-10 --pain 0-10 --notes \"...\"\n\n" ++
+                "Or record the run with flags:\n  runningman log {s} --distance KM --duration MM:SS --avg-hr BPM --rpe 1-10 --pain 0-10 --notes \"...\"\n",
+            .{ planned.date, planned.date, planned.date },
         );
     }
 
@@ -729,6 +730,8 @@ fn parseLogCommand(args: []const []const u8) !LogCommand {
 
         if (std.mem.eql(u8, flag, "--outcome")) {
             result.input.status = try activity.parseStatus(value);
+        } else if (std.mem.eql(u8, flag, "--sport")) {
+            result.input.sport = try activity.parseSport(value);
         } else if (std.mem.eql(u8, flag, "--distance")) {
             result.input.distance_km = try parseFloat(value);
         } else if (std.mem.eql(u8, flag, "--duration")) {
@@ -758,6 +761,9 @@ fn promptForActivity(
     writer: *Io.Writer,
 ) !activity.Input {
     var result: activity.Input = .{};
+
+    const sport_text = try prompt(allocator, reader, writer, "Sport [running/cycling] (running): ");
+    if (sport_text.len != 0) result.sport = try activity.parseSport(sport_text);
 
     const status_text = try prompt(allocator, reader, writer, "Outcome [completed/modified/skipped/rested] (completed): ");
     if (status_text.len != 0) result.status = try activity.parseStatus(status_text);
@@ -951,6 +957,7 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman [--data PATH] export [--format markdown|jsonl] [--weeks N] [--ending DATE]
         \\
         \\Log options:
+        \\  --sport running|cycling
         \\  --outcome completed|modified|skipped|rested
         \\  --modified | --skipped | --rested
         \\  --distance KM  --duration MINUTES|MM:SS|HH:MM:SS  --avg-hr BPM
@@ -983,6 +990,7 @@ fn friendlyError(err: anyerror) []const u8 {
         error.ReadinessScoreRequired => "a morning check-in requires --readiness 0-100",
         error.ModifiedReasonRequired => "a modified activity requires a reason",
         error.InvalidStatus => "outcome must be completed, modified, skipped, or rested",
+        error.InvalidSport => "sport must be running or cycling",
         error.InvalidDuration => "duration must be positive whole minutes, MM:SS, or HH:MM:SS",
         error.InvalidProfileCommand => "profile requires `validate RUNNER_PROFILE.json`",
         error.RunnerProfileFileNotFound => "the runner profile JSON file was not found",

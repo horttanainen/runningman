@@ -312,12 +312,15 @@ test "$(sed -n '/"workouts": \[/,$p' "$temporary_directory/runner-profile-24-wee
 grep -q "Core easy aerobic run" "$temporary_directory/today.txt"
 grep -q "6.0 km at 6:15–7:00/km, 8.6–9.6 km/h (37:30–42:00)" \
     "$temporary_directory/today.txt"
+grep -q "Bicycle replacement (conservative time-and-effort match; not a proven 1:1 equivalence)" \
+    "$temporary_directory/today.txt"
+grep -q "Total ride time: 37:30–42:00" "$temporary_directory/today.txt"
 if grep -q "Expected total time: 37:30–42:00" "$temporary_directory/today.txt"; then
     echo "expected a single-segment workout not to repeat its duration" >&2
     exit 1
 fi
 
-printf 'completed\n8.2\n52:00\n139\n3\n0\nComfortable\n' |
+printf '\ncompleted\n8.2\n52:00\n139\n3\n0\nComfortable\n' |
     "$binary" --data "$data_file" log 2026-07-22 > "$temporary_directory/interactive.txt"
 grep -q "Recorded completed" "$temporary_directory/interactive.txt"
 
@@ -326,6 +329,16 @@ grep -q "Week 4" "$temporary_directory/schedule.txt"
 grep -q "2026-08-15 Saturday: long — 13.0 km" "$temporary_directory/schedule.txt"
 grep -q "13.0 km at 6:15–6:55/km, 8.7–9.6 km/h (1:21:15–1:29:55)" \
     "$temporary_directory/schedule.txt"
+grep -q "Total ride time: 1:21:15–1:29:55" "$temporary_directory/schedule.txt"
+
+"$binary" --data "$data_file" log 2026-07-23 \
+    --sport cycling \
+    --duration 45:00 \
+    --avg-hr 138 \
+    --rpe 3 \
+    --pain 0 \
+    --notes "Pain-free bicycle replacement" > "$temporary_directory/cycling-log.txt"
+grep -q "Recorded completed" "$temporary_directory/cycling-log.txt"
 
 "$binary" --data "$data_file" log 2026-07-20 \
     --distance 7.1 \
@@ -401,6 +414,7 @@ grep -q "Sleep 82 and Readiness 76" "$temporary_directory/oura-interactive.txt"
 "$binary" --data "$data_file" history 2026-07-20 2026-07-26 > "$temporary_directory/history.txt"
 grep -q "completed, 7.10 km" "$temporary_directory/history.txt"
 grep -q "modified, 6.10 km" "$temporary_directory/history.txt"
+grep -q "completed, cycling, 0:45:00" "$temporary_directory/history.txt"
 grep -q "Next morning Oura: Sleep 65, Readiness 59" "$temporary_directory/history.txt"
 
 "$binary" --data "$data_file" compare --weeks 1 --ending 2026-07-26 > "$temporary_directory/compare.txt"
@@ -433,10 +447,11 @@ grep -q "REVIEW-COVERAGE-ACTIVITY-01.*FIRED" "$temporary_directory/check-in.md"
 grep -q "REVIEW-PAIN-01.*FIRED" "$temporary_directory/check-in.md"
 
 line_count=$(wc -l < "$data_file" | tr -d ' ')
-test "$line_count" = "192"
+test "$line_count" = "193"
 
 "$binary" --data "$data_file" export --format jsonl > "$temporary_directory/raw.jsonl"
 cmp "$data_file" "$temporary_directory/raw.jsonl"
+grep -q '"sport":"cycling"' "$temporary_directory/raw.jsonl"
 
 keep_review_data="$temporary_directory/keep-review.jsonl"
 "$binary" --data "$keep_review_data" init 2026-07-20 >/dev/null

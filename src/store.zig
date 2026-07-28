@@ -202,6 +202,7 @@ fn applyEvent(storage: *Store, allocator: std.mem.Allocator, event: model.Event)
                 .schedule_id = event.schedule_id orelse return error.InvalidDataFile,
                 .workout_id = event.workout_id orelse return error.InvalidDataFile,
                 .date = event.date orelse return error.InvalidDataFile,
+                .sport = event.sport orelse .running,
                 .status = event.status orelse return error.InvalidDataFile,
                 .distance_km = event.distance_km,
                 .duration_seconds = event.duration_seconds,

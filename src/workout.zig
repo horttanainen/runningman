@@ -77,6 +77,131 @@ pub fn printDetails(writer: *Io.Writer, value: model.Workout, indent: []const u8
         try printDurationRange(writer, estimate.minimum_seconds, estimate.maximum_seconds);
         try writer.writeByte('\n');
     }
+
+    try printBicycleReplacement(writer, value, indent);
+}
+
+pub fn printBicycleReplacement(
+    writer: *Io.Writer,
+    value: model.Workout,
+    indent: []const u8,
+) !void {
+    if (std.mem.eql(u8, value.kind, "rest")) return;
+    if (std.mem.eql(u8, value.kind, "race")) {
+        try writer.print(
+            "{s}Bicycle replacement: none is scientifically equivalent to the half-marathon race; " ++
+                "cycling can preserve aerobic work but not race-specific readiness.\n",
+            .{indent},
+        );
+        return;
+    }
+
+    try writer.print(
+        "{s}Bicycle replacement (conservative time-and-effort match; not a proven 1:1 equivalence):\n",
+        .{indent},
+    );
+    for (value.segments, 0..) |segment, index| {
+        try writer.print("{s}  - {s}: ", .{ indent, bicycleLabel(segment.label) });
+        const one_repetition: model.Segment = .{
+            .kind = segment.kind,
+            .label = segment.label,
+            .distance_km = segment.distance_km,
+            .duration_seconds = segment.duration_seconds,
+            .pace_fast_seconds_per_km = segment.pace_fast_seconds_per_km,
+            .pace_slow_seconds_per_km = segment.pace_slow_seconds_per_km,
+        };
+        const estimate = segmentDurationEstimate(one_repetition);
+        if (segment.repetitions > 1) {
+            try writer.print("{d} × ", .{segment.repetitions});
+        }
+        if (estimate.complete and estimate.maximum_seconds > 0) {
+            try printDurationRange(writer, estimate.minimum_seconds, estimate.maximum_seconds);
+        } else {
+            try writer.writeAll("same planned segment duration");
+        }
+        try writer.print(" at {s}", .{bicycleEffort(value, index)});
+        if (segment.recovery_seconds) |seconds| {
+            if (segment.repetitions > 1) {
+                try writer.writeAll("; ");
+                try printDuration(writer, seconds);
+                try writer.writeAll(" very easy pedalling between repetitions");
+            }
+        }
+        try writer.writeByte('\n');
+    }
+
+    const estimate = durationEstimate(value.segments);
+    if (estimate.complete and estimate.maximum_seconds > 0) {
+        try writer.print("{s}  Total ride time: ", .{indent});
+        try printDurationRange(writer, estimate.minimum_seconds, estimate.maximum_seconds);
+        try writer.writeAll(". Use cycling-specific effort cues; do not credit bicycle kilometres as running distance.\n");
+    } else {
+        try writer.print(
+            "{s}  Use cycling-specific effort cues; duration cannot be derived without an anchored running pace. " ++
+                "Do not credit bicycle kilometres as running distance.\n",
+            .{indent},
+        );
+    }
+}
+
+fn bicycleLabel(label: []const u8) []const u8 {
+    if (std.mem.eql(u8, label, "Run")) return "Ride";
+    return label;
+}
+
+fn bicycleEffort(value: model.Workout, segment_index: usize) []const u8 {
+    if (isOptionalRecovery(value)) return "very easy RPE 2–3";
+    if (isQualityWorkout(value)) {
+        const is_support_segment = value.segments.len >= 3 and
+            (segment_index == 0 or segment_index + 1 == value.segments.len);
+        if (is_support_segment) return "easy conversational RPE 2–4";
+        if (isRaceSpecificPhase(value.phase)) return "controlled tempo RPE 5–7";
+        return "controlled hard RPE 6–8";
+    }
+    if (isDemandingLongSegment(value, segment_index)) {
+        return "controlled steady RPE 4–6";
+    }
+    return "easy conversational RPE 2–4";
+}
+
+fn isOptionalRecovery(value: model.Workout) bool {
+    if (value.decision) |decision| {
+        if (decision.allocation_role == .optional_recovery) return true;
+    }
+    return std.mem.eql(u8, value.kind, "optional-recovery") or
+        std.mem.eql(u8, value.kind, "recovery-or-rest");
+}
+
+fn isQualityWorkout(value: model.Workout) bool {
+    if (value.decision) |decision| {
+        if (decision.allocation_role == .quality) return true;
+    }
+    const quality_kinds = [_][]const u8{
+        "quality",
+        "hills",
+        "strides",
+        "intervals",
+        "steady",
+        "tempo",
+        "half-marathon-pace",
+    };
+    for (quality_kinds) |kind| {
+        if (std.mem.eql(u8, value.kind, kind)) return true;
+    }
+    return false;
+}
+
+fn isRaceSpecificPhase(phase: []const u8) bool {
+    return std.mem.eql(u8, phase, "race_specific") or
+        std.mem.eql(u8, phase, "race-specific") or
+        std.mem.eql(u8, phase, "taper") or
+        std.mem.eql(u8, phase, "race");
+}
+
+fn isDemandingLongSegment(value: model.Workout, segment_index: usize) bool {
+    if (segment_index == 0) return false;
+    return std.mem.eql(u8, value.kind, "long-progression") or
+        std.mem.eql(u8, value.kind, "long-race-specific");
 }
 
 pub fn printSegmentPrescription(writer: *Io.Writer, segment: model.Segment) !void {
@@ -250,13 +375,109 @@ test "single segment details do not repeat the expected duration" {
         .segments = &segments,
         .recorded_at = 0,
     };
-    var output_buffer: [256]u8 = undefined;
+    var output_buffer: [768]u8 = undefined;
     var writer: Io.Writer = .fixed(&output_buffer);
 
     try printDetails(&writer, value, "");
 
     try std.testing.expectEqualStrings(
-        "- Run: 6.5 km at 6:11–6:56/km, 8.7–9.7 km/h (40:12–45:04)\n",
+        "- Run: 6.5 km at 6:11–6:56/km, 8.7–9.7 km/h (40:12–45:04)\n" ++
+            "Bicycle replacement (conservative time-and-effort match; not a proven 1:1 equivalence):\n" ++
+            "  - Ride: 40:12–45:04 at easy conversational RPE 2–4\n" ++
+            "  Total ride time: 40:12–45:04. Use cycling-specific effort cues; do not credit bicycle kilometres as running distance.\n",
         writer.buffered(),
     );
+}
+
+test "quality bicycle replacement preserves work and recovery durations" {
+    const segments = [_]model.Segment{
+        .{
+            .kind = "distance",
+            .label = "Warm-up",
+            .distance_km = 1.5,
+            .pace_fast_seconds_per_km = 371,
+            .pace_slow_seconds_per_km = 416,
+        },
+        .{
+            .kind = "repeat",
+            .label = "Aerobic intervals",
+            .repetitions = 4,
+            .distance_km = 1,
+            .pace_fast_seconds_per_km = 301,
+            .pace_slow_seconds_per_km = 326,
+            .recovery_seconds = 120,
+        },
+        .{
+            .kind = "distance",
+            .label = "Cooldown",
+            .distance_km = 1,
+            .pace_fast_seconds_per_km = 371,
+            .pace_slow_seconds_per_km = 416,
+        },
+    };
+    const value: model.Workout = .{
+        .id = 1,
+        .schedule_id = 1,
+        .date = "2026-07-28",
+        .week = 2,
+        .day = "Tuesday",
+        .phase = "foundation",
+        .kind = "quality",
+        .intensity = "High",
+        .distance_min_km = 6.5,
+        .distance_max_km = 6.5,
+        .details = "Aerobic intervals.",
+        .segments = &segments,
+        .recorded_at = 0,
+    };
+    var output_buffer: [1024]u8 = undefined;
+    var writer: Io.Writer = .fixed(&output_buffer);
+
+    try printBicycleReplacement(&writer, value, "");
+
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        writer.buffered(),
+        "4 × 5:01–5:26 at controlled hard RPE 6–8; 2:00 very easy pedalling",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        writer.buffered(),
+        "Total ride time: 41:32–45:04",
+    ) != null);
+}
+
+test "race bicycle replacement states the specificity boundary" {
+    const segments = [_]model.Segment{.{
+        .kind = "distance",
+        .label = "Half marathon",
+        .distance_km = 21.0975,
+        .pace_fast_seconds_per_km = 336,
+        .pace_slow_seconds_per_km = 346,
+    }};
+    const value: model.Workout = .{
+        .id = 1,
+        .schedule_id = 1,
+        .date = "2026-10-18",
+        .week = 13,
+        .day = "Sunday",
+        .phase = "race",
+        .kind = "race",
+        .intensity = "Race effort",
+        .distance_min_km = 21.0975,
+        .distance_max_km = 21.0975,
+        .details = "Half marathon.",
+        .segments = &segments,
+        .recorded_at = 0,
+    };
+    var output_buffer: [256]u8 = undefined;
+    var writer: Io.Writer = .fixed(&output_buffer);
+
+    try printBicycleReplacement(&writer, value, "");
+
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        writer.buffered(),
+        "none is scientifically equivalent",
+    ) != null);
 }

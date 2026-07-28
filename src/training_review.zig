@@ -180,7 +180,9 @@ fn collectInputs(
                 if (activity) |logged| {
                     inputs.recorded_core_runs += 1;
                     switch (logged.status) {
-                        .completed => {},
+                        .completed => {
+                            if (logged.sport == .cycling) inputs.modified_core_runs += 1;
+                        },
                         .modified => inputs.modified_core_runs += 1,
                         .skipped, .rested => inputs.skipped_core_runs += 1,
                     }

@@ -16,6 +16,8 @@ pub const Summary = struct {
     rested: u32 = 0,
     unrecorded: u32 = 0,
     actual_distance_km: f64 = 0,
+    cycling_distance_km: f64 = 0,
+    cycling_sessions: u32 = 0,
     actual_duration_seconds: u64 = 0,
     planned_min_km: f64 = 0,
     planned_max_km: f64 = 0,
@@ -60,6 +62,7 @@ pub fn calculate(
         }
 
         if (logged) |activity| {
+            if (activity.sport == .cycling) summary.cycling_sessions += 1;
             switch (activity.status) {
                 .completed => summary.completed += 1,
                 .modified => summary.modified += 1,
@@ -67,8 +70,12 @@ pub fn calculate(
                 .rested => summary.rested += 1,
             }
             if (activity.distance_km) |distance_km| {
-                summary.actual_distance_km += distance_km;
-                if (planned) |workout| addCategoryDistance(&summary, workout.kind, distance_km);
+                if (activity.sport == .cycling) {
+                    summary.cycling_distance_km += distance_km;
+                } else {
+                    summary.actual_distance_km += distance_km;
+                    if (planned) |workout| addCategoryDistance(&summary, workout.kind, distance_km);
+                }
             }
             if (activity.duration_seconds) |seconds| summary.actual_duration_seconds += seconds;
             if (activity.rpe) |value| {
@@ -492,6 +499,7 @@ pub fn printMarkdown(
 
 pub fn printActivity(writer: *Io.Writer, activity: model.Activity) !void {
     try writer.print("{s}", .{@tagName(activity.status)});
+    if (activity.sport == .cycling) try writer.writeAll(", cycling");
     if (activity.distance_km) |value| try writer.print(", {d:.2} km", .{value});
     if (activity.duration_seconds) |value| try printDuration(writer, value);
     if (activity.average_heart_rate) |value| try writer.print(", avg HR {d}", .{value});
@@ -508,7 +516,13 @@ fn printSummary(writer: *Io.Writer, summary: Summary) !void {
         "Outcomes: {d} completed, {d} modified, {d} skipped, {d} rested, {d} unrecorded\n",
         .{ summary.completed, summary.modified, summary.skipped, summary.rested, summary.unrecorded },
     );
-    try writer.print("Actual distance: {d:.2} km\n", .{summary.actual_distance_km});
+    try writer.print("Actual running distance: {d:.2} km\n", .{summary.actual_distance_km});
+    if (summary.cycling_sessions > 0) {
+        try writer.print(
+            "Cycling substitutions: {d} sessions, {d:.2} recorded km\n",
+            .{ summary.cycling_sessions, summary.cycling_distance_km },
+        );
+    }
     try writer.print(
         "Planned distance represented in structured fields: {d:.1}–{d:.1} km ({d} workouts have no numeric target)\n",
         .{ summary.planned_min_km, summary.planned_max_km, summary.plans_without_distance },
@@ -528,7 +542,13 @@ fn printSummaryMarkdown(writer: *Io.Writer, summary: Summary) !void {
         "- Outcomes: {d} completed, {d} modified, {d} skipped, {d} rested, {d} unrecorded\n",
         .{ summary.completed, summary.modified, summary.skipped, summary.rested, summary.unrecorded },
     );
-    try writer.print("- Actual distance: {d:.2} km\n", .{summary.actual_distance_km});
+    try writer.print("- Actual running distance: {d:.2} km\n", .{summary.actual_distance_km});
+    if (summary.cycling_sessions > 0) {
+        try writer.print(
+            "- Cycling substitutions: {d} sessions; {d:.2} recorded km\n",
+            .{ summary.cycling_sessions, summary.cycling_distance_km },
+        );
+    }
     try writer.print(
         "- Structured planned distance: {d:.1}–{d:.1} km; {d} workouts have no numeric target\n",
         .{ summary.planned_min_km, summary.planned_max_km, summary.plans_without_distance },
@@ -644,6 +664,7 @@ fn printSignalsMarkdown(writer: *Io.Writer, current: Summary, previous: Summary)
 
 fn printActivityMarkdown(writer: *Io.Writer, activity: model.Activity) !void {
     try writer.print("{s}", .{@tagName(activity.status)});
+    if (activity.sport == .cycling) try writer.writeAll("; cycling");
     if (activity.distance_km) |value| try writer.print("; {d:.2} km", .{value});
     if (activity.duration_seconds) |value| {
         try writer.writeAll("; ");
