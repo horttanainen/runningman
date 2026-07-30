@@ -100,24 +100,19 @@ pub fn printBicycleReplacement(
         "{s}Bicycle replacement (conservative time-and-effort match; not a proven 1:1 equivalence):\n",
         .{indent},
     );
+    var total_ride_seconds: u32 = 0;
+    var total_is_complete = true;
     for (value.segments, 0..) |segment, index| {
         try writer.print("{s}  - {s}: ", .{ indent, bicycleLabel(segment.label) });
-        const one_repetition: model.Segment = .{
-            .kind = segment.kind,
-            .label = segment.label,
-            .distance_km = segment.distance_km,
-            .duration_seconds = segment.duration_seconds,
-            .pace_fast_seconds_per_km = segment.pace_fast_seconds_per_km,
-            .pace_slow_seconds_per_km = segment.pace_slow_seconds_per_km,
-        };
-        const estimate = segmentDurationEstimate(one_repetition);
         if (segment.repetitions > 1) {
             try writer.print("{d} × ", .{segment.repetitions});
         }
-        if (estimate.complete and estimate.maximum_seconds > 0) {
-            try printDurationRange(writer, estimate.minimum_seconds, estimate.maximum_seconds);
+        if (practicalBicycleDuration(segment)) |seconds| {
+            try printDuration(writer, seconds);
+            total_ride_seconds += seconds * @as(u32, segment.repetitions);
         } else {
             try writer.writeAll("same planned segment duration");
+            total_is_complete = false;
         }
         try writer.print(" at {s}", .{bicycleEffort(value, index)});
         if (segment.recovery_seconds) |seconds| {
@@ -125,15 +120,16 @@ pub fn printBicycleReplacement(
                 try writer.writeAll("; ");
                 try printDuration(writer, seconds);
                 try writer.writeAll(" very easy pedalling between repetitions");
+                total_ride_seconds += @as(u32, seconds) *
+                    (@as(u32, segment.repetitions) - 1);
             }
         }
         try writer.writeByte('\n');
     }
 
-    const estimate = durationEstimate(value.segments);
-    if (estimate.complete and estimate.maximum_seconds > 0) {
+    if (total_is_complete and total_ride_seconds > 0) {
         try writer.print("{s}  Total ride time: ", .{indent});
-        try printDurationRange(writer, estimate.minimum_seconds, estimate.maximum_seconds);
+        try printDuration(writer, total_ride_seconds);
         try writer.writeAll(". Use cycling-specific effort cues; do not credit bicycle kilometres as running distance.\n");
     } else {
         try writer.print(
@@ -142,6 +138,35 @@ pub fn printBicycleReplacement(
             .{indent},
         );
     }
+}
+
+fn practicalBicycleDuration(segment: model.Segment) ?u32 {
+    const one_repetition: model.Segment = .{
+        .kind = segment.kind,
+        .label = segment.label,
+        .distance_km = segment.distance_km,
+        .duration_seconds = segment.duration_seconds,
+        .pace_fast_seconds_per_km = segment.pace_fast_seconds_per_km,
+        .pace_slow_seconds_per_km = segment.pace_slow_seconds_per_km,
+    };
+    const estimate = segmentDurationEstimate(one_repetition);
+    if (!estimate.complete or estimate.maximum_seconds == 0) return null;
+    if (estimate.minimum_seconds == estimate.maximum_seconds) {
+        return estimate.minimum_seconds;
+    }
+
+    const midpoint_seconds = estimate.minimum_seconds +
+        (estimate.maximum_seconds - estimate.minimum_seconds) / 2;
+    const rounding_seconds: u32 = if (segment.repetitions > 1)
+        15
+    else if (midpoint_seconds < 15 * 60)
+        30
+    else if (midpoint_seconds < 60 * 60)
+        60
+    else
+        5 * 60;
+    return ((midpoint_seconds + rounding_seconds / 2) / rounding_seconds) *
+        rounding_seconds;
 }
 
 fn bicycleLabel(label: []const u8) []const u8 {
@@ -383,13 +408,13 @@ test "single segment details do not repeat the expected duration" {
     try std.testing.expectEqualStrings(
         "- Run: 6.5 km at 6:11–6:56/km, 8.7–9.7 km/h (40:12–45:04)\n" ++
             "Bicycle replacement (conservative time-and-effort match; not a proven 1:1 equivalence):\n" ++
-            "  - Ride: 40:12–45:04 at easy conversational RPE 2–4\n" ++
-            "  Total ride time: 40:12–45:04. Use cycling-specific effort cues; do not credit bicycle kilometres as running distance.\n",
+            "  - Ride: 43:00 at easy conversational RPE 2–4\n" ++
+            "  Total ride time: 43:00. Use cycling-specific effort cues; do not credit bicycle kilometres as running distance.\n",
         writer.buffered(),
     );
 }
 
-test "quality bicycle replacement preserves work and recovery durations" {
+test "quality bicycle replacement rounds work and preserves recovery duration" {
     const segments = [_]model.Segment{
         .{
             .kind = "distance",
@@ -438,12 +463,12 @@ test "quality bicycle replacement preserves work and recovery durations" {
     try std.testing.expect(std.mem.indexOf(
         u8,
         writer.buffered(),
-        "4 × 5:01–5:26 at controlled hard RPE 6–8; 2:00 very easy pedalling",
+        "4 × 5:15 at controlled hard RPE 6–8; 2:00 very easy pedalling",
     ) != null);
     try std.testing.expect(std.mem.indexOf(
         u8,
         writer.buffered(),
-        "Total ride time: 41:32–45:04",
+        "Total ride time: 43:30",
     ) != null);
 }
 

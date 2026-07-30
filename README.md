@@ -208,17 +208,20 @@ See a detailed upcoming schedule, starting today by default:
 ### Bicycle replacements
 
 Every non-rest running workout includes a bicycle option derived from the
-planned segment durations. Repetitions, recovery periods, recovery-week
-reductions, taper reductions, and the distinction between easy and demanding
-work are retained. Bicycle distance is deliberately not prescribed because
-terrain, wind, equipment, and cycling economy make a kilometre conversion
-misleading.
+planned segment durations. A pace-derived duration range is replaced by one
+practical target near its midpoint: repetitions are rounded to 15 seconds,
+standalone segments under 15 minutes to 30 seconds, segments under an hour to
+one minute, and longer segments to five minutes. Exact planned durations and
+recovery periods remain exact. Repetitions, recovery-week reductions, taper
+reductions, and the distinction between easy and demanding work are retained.
+Bicycle distance is deliberately not prescribed because terrain, wind,
+equipment, and cycling economy make a kilometre conversion misleading.
 
-The replacement uses the same planned time and a cycling-specific RPE target as
-a conservative field approximation. It is not presented as a proven 1:1
-physiological equivalence. Running and cycling can produce different heart-rate
-and oxygen-uptake responses at apparently matched effort, and running-specific
-mechanical preparation is not replaced. The 2026
+The replacement uses a practical duration near the planned running time and a
+cycling-specific RPE target as a conservative field approximation. It is not
+presented as a proven 1:1 physiological equivalence. Running and cycling can
+produce different heart-rate and oxygen-uptake responses at apparently matched
+effort, and running-specific mechanical preparation is not replaced. The 2026
 [systematic review and meta-analysis](https://doi.org/10.3389/fspor.2026.1843803)
 found no clear short- to medium-term difference in the limited studies, but
 explicitly concluded that the evidence does not establish interchangeability.

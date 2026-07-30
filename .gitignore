@@ -2,6 +2,7 @@
 /zig-out/
 /.DS_Store
 /polar_beat_screenshots/
+/garmin_activity_exports/
 /*.jsonl
 /weekly-check-in*.md
 /proposed-plan.json

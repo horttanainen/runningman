@@ -314,7 +314,7 @@ grep -q "6.0 km at 6:15–7:00/km, 8.6–9.6 km/h (37:30–42:00)" \
     "$temporary_directory/today.txt"
 grep -q "Bicycle replacement (conservative time-and-effort match; not a proven 1:1 equivalence)" \
     "$temporary_directory/today.txt"
-grep -q "Total ride time: 37:30–42:00" "$temporary_directory/today.txt"
+grep -q "Total ride time: 40:00" "$temporary_directory/today.txt"
 if grep -q "Expected total time: 37:30–42:00" "$temporary_directory/today.txt"; then
     echo "expected a single-segment workout not to repeat its duration" >&2
     exit 1
@@ -329,7 +329,7 @@ grep -q "Week 4" "$temporary_directory/schedule.txt"
 grep -q "2026-08-15 Saturday: long — 13.0 km" "$temporary_directory/schedule.txt"
 grep -q "13.0 km at 6:15–6:55/km, 8.7–9.6 km/h (1:21:15–1:29:55)" \
     "$temporary_directory/schedule.txt"
-grep -q "Total ride time: 1:21:15–1:29:55" "$temporary_directory/schedule.txt"
+grep -q "Total ride time: 1:25:00" "$temporary_directory/schedule.txt"
 
 "$binary" --data "$data_file" log 2026-07-23 \
     --sport cycling \
