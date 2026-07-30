@@ -7,8 +7,14 @@ const file_id_message_number: u16 = 0;
 const session_message_number: u16 = 18;
 const time_in_zone_message_number: u16 = 216;
 
+pub const Sport = enum {
+    running,
+    cycling,
+};
+
 pub const Summary = struct {
     date: date.Date,
+    sport: Sport,
     duration_seconds: u32,
     distance_km: ?f64,
     average_heart_rate: ?u16,
@@ -134,7 +140,11 @@ pub fn parse(bytes: []const u8) !Summary {
     if (!parser.is_activity_file) return error.NotActivityFitFile;
     if (parser.session_count == 0) return error.SessionMissing;
     if (parser.session_count > 1) return error.MultipleSessionsUnsupported;
-    if (parser.session.sport != 2) return error.NotCyclingActivity;
+    const sport = switch (parser.session.sport orelse return error.SportMissing) {
+        1 => Sport.running,
+        2 => Sport.cycling,
+        else => return error.UnsupportedSport,
+    };
 
     const start_time = parser.session.start_time orelse return error.StartTimeMissing;
     const timer_milliseconds = parser.session.timer_milliseconds orelse
@@ -161,6 +171,7 @@ pub fn parse(bytes: []const u8) !Summary {
 
     return .{
         .date = date.fromEpochDay(@intCast(epoch_day)),
+        .sport = sport,
         .duration_seconds = @intCast(rounded_duration),
         .distance_km = scaledPositiveOptional(parser.session.distance_centimeters, 100_000),
         .average_heart_rate = positiveOptional(parser.session.average_heart_rate),
@@ -639,6 +650,7 @@ test "parses a cycling activity summary and local date" {
 
     const summary = try parse(file.items);
     try std.testing.expectEqual(date.Date{ .year = 2026, .month = 7, .day = 28 }, summary.date);
+    try std.testing.expectEqual(Sport.cycling, summary.sport);
     try std.testing.expectEqual(@as(u32, 2783), summary.duration_seconds);
     try std.testing.expectApproxEqAbs(@as(f64, 21.52297), summary.distance_km.?, 0.00001);
     try std.testing.expectEqual(@as(u16, 150), summary.average_heart_rate.?);
@@ -647,4 +659,45 @@ test "parses a cycling activity summary and local date" {
     try std.testing.expectApproxEqAbs(@as(f64, 2.2), summary.aerobic_training_effect.?, 0.01);
     try std.testing.expectEqualStrings("CYCLOCROSS", summary.sport_profile_name.?);
     try std.testing.expectEqual([7]u32{ 26, 588, 1570, 595, 0, 0, 0 }, summary.heart_rate_zone_seconds.?);
+}
+
+test "parses a running activity sport" {
+    const allocator = std.testing.allocator;
+    var data: std.ArrayList(u8) = .empty;
+    defer data.deinit(allocator);
+
+    try appendDefinition(&data, allocator, 0, file_id_message_number, &.{
+        .{ .number = 0, .size = 1, .base_type = 0 },
+    });
+    try data.appendSlice(allocator, &.{ 0, 4 });
+
+    try appendDefinition(&data, allocator, 1, session_message_number, &.{
+        .{ .number = 2, .size = 4, .base_type = 134 },
+        .{ .number = 8, .size = 4, .base_type = 134 },
+        .{ .number = 5, .size = 1, .base_type = 0 },
+    });
+    try data.append(allocator, 1);
+    try appendU32(&data, allocator, 1_154_198_166);
+    try appendU32(&data, allocator, 2_782_590);
+    try data.append(allocator, 1);
+
+    try appendDefinition(&data, allocator, 2, activity_message_number, &.{
+        .{ .number = 253, .size = 4, .base_type = 134 },
+        .{ .number = 5, .size = 4, .base_type = 134 },
+    });
+    try data.append(allocator, 2);
+    try appendU32(&data, allocator, 1_154_201_101);
+    try appendU32(&data, allocator, 1_154_211_901);
+
+    var file: std.ArrayList(u8) = .empty;
+    defer file.deinit(allocator);
+    try file.appendSlice(allocator, &.{ 14, 0x20, 0, 0 });
+    try appendU32(&file, allocator, @intCast(data.items.len));
+    try file.appendSlice(allocator, ".FIT");
+    try appendU16(&file, allocator, crc16(file.items));
+    try file.appendSlice(allocator, data.items);
+    try appendU16(&file, allocator, crc16(file.items));
+
+    const summary = try parse(file.items);
+    try std.testing.expectEqual(Sport.running, summary.sport);
 }

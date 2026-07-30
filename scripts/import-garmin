@@ -9,6 +9,7 @@ parser_main="$repository_root/src/garmin_fit_main.zig"
 
 data_path="runningman-data.jsonl"
 date_override=""
+sport_override=""
 dry_run=false
 summary_fixture=""
 build_only=false
@@ -17,14 +18,16 @@ activity_path=""
 usage() {
     cat <<'EOF'
 Usage:
-  ./scripts/import-garmin [--date YYYY-MM-DD] [--data PATH] [--dry-run] FIT_OR_ZIP
+  ./scripts/import-garmin [--date YYYY-MM-DD] [--sport SPORT] [--data PATH] [--dry-run] FIT_OR_ZIP
 
-Reads a Garmin cycling activity locally, shows the measured summary, opens the
-generated runningman command in $EDITOR, and executes it after the editor exits
-normally. Both an original .fit file and Garmin Connect's exported .zip work.
+Reads a Garmin running or cycling activity locally, shows the measured summary,
+opens the generated runningman command in $EDITOR, and executes it after the
+editor exits normally. Both an original .fit file and Garmin Connect's exported
+.zip work.
 
 Options:
   --date YYYY-MM-DD  Override the local activity date stored in the FIT file
+  --sport SPORT      Override the FIT sport with running or cycling
   --data PATH        Use a non-default runningman JSONL file
   --dry-run          Print the editable command without opening an editor
   -h, --help         Show this help
@@ -56,6 +59,11 @@ while [ "$#" -gt 0 ]; do
             data_path=$2
             shift 2
             ;;
+        --sport)
+            require_value "$1" "$#"
+            sport_override=$2
+            shift 2
+            ;;
         --dry-run)
             dry_run=true
             shift
@@ -85,6 +93,11 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+case "$sport_override" in
+    ""|running|cycling) ;;
+    *) fail "sport must be running or cycling" ;;
+esac
 
 build_parser() {
     if [ ! -x "$parser_binary" ] ||
@@ -148,12 +161,21 @@ json_value() {
 }
 
 workout_date=$(json_value date)
+detected_sport=$(json_value sport)
 if [ -n "$date_override" ]; then
     workout_date=$date_override
 fi
 validated_date=$(date -j -f '%Y-%m-%d' "$workout_date" '+%Y-%m-%d' 2>/dev/null || true)
 if [ "$validated_date" != "$workout_date" ]; then
     fail "invalid date $workout_date; expected YYYY-MM-DD"
+fi
+case "$detected_sport" in
+    running|cycling) ;;
+    *) fail "Garmin summary has no supported sport" ;;
+esac
+sport=$detected_sport
+if [ -n "$sport_override" ]; then
+    sport=$sport_override
 fi
 
 duration_seconds=$(json_value duration_seconds)
@@ -244,6 +266,9 @@ append_note() {
     fi
 }
 
+if [ "$sport" != "$detected_sport" ]; then
+    append_note "Garmin sport $detected_sport, imported as $sport"
+fi
 if [ -n "$sport_profile_name" ]; then
     append_note "profile $sport_profile_name"
 fi
@@ -304,7 +329,11 @@ if [ -n "$intensity_factor" ]; then
     append_note "intensity factor $intensity_factor"
 fi
 if [ -n "$laps" ]; then
-    append_note "$laps laps"
+    if [ "$laps" -eq 1 ]; then
+        append_note "1 lap"
+    else
+        append_note "$laps laps"
+    fi
 fi
 if [ -n "$average_temperature" ]; then
     temperature_note="avg temperature $average_temperature C"
@@ -356,8 +385,10 @@ fi
     printf '# Generated from %s.\n' "$source_name"
     printf '%s\n' \
         '# Edit any inferred value before saving and exiting.' \
-        '# For optional fields, replace the placeholder and remove the leading "#".' \
-        "# If this ride replaced a planned run, change the outcome to modified and add: --reason '...'"
+        '# For optional fields, replace the placeholder and remove the leading "#".'
+    if [ "$sport" = cycling ]; then
+        printf '%s\n' "# If this ride replaced a planned run, change the outcome to modified and add: --reason '...'"
+    fi
     if [ "$existing_activity_count" -gt 0 ]; then
         printf '%s\n' '# WARNING: this date already has an activity; running this creates an append-only correction.'
     fi
@@ -370,7 +401,8 @@ fi
         printf '  --data %s\n' "$(shell_quote "$data_path")"
     fi
     printf '  log %s\n' "$(shell_quote "$workout_date")"
-    printf '%s\n' '  --sport cycling' '  --outcome completed'
+    printf '  --sport %s\n' "$sport"
+    printf '%s\n' '  --outcome completed'
     if [ -n "$distance_for_command" ]; then
         printf '  --distance %s\n' "$distance_for_command"
     fi
@@ -389,8 +421,12 @@ if [ "$dry_run" = true ]; then
     exit 0
 fi
 
-printf '%s\n' 'Measured Garmin cycling workout:'
+printf 'Measured Garmin %s workout:\n' "$sport"
 printf '  Date:       %s\n' "$workout_date"
+printf '  Sport:      %s\n' "$sport"
+if [ "$sport" != "$detected_sport" ]; then
+    printf '  FIT sport:  %s (overridden)\n' "$detected_sport"
+fi
 printf '  Duration:   %s\n' "$duration"
 if [ -n "$distance_for_command" ]; then
     printf '  Distance:   %s km\n' "$distance_for_command"

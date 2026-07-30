@@ -6,6 +6,7 @@ const Io = std.Io;
 
 const Output = struct {
     date: []const u8,
+    sport: garmin_fit.Sport,
     duration_seconds: u32,
     distance_km: ?f64,
     average_heart_rate: ?u16,
@@ -73,6 +74,7 @@ fn run(
     const date_text = try date.format(allocator, summary.date);
     const output: Output = .{
         .date = date_text,
+        .sport = summary.sport,
         .duration_seconds = summary.duration_seconds,
         .distance_km = summary.distance_km,
         .average_heart_rate = summary.average_heart_rate,
@@ -120,7 +122,8 @@ fn friendlyError(err: anyerror) []const u8 {
         error.NotActivityFitFile => "the FIT file is not an activity",
         error.SessionMissing => "the FIT activity does not contain a session summary",
         error.MultipleSessionsUnsupported => "multisport FIT activities are not supported",
-        error.NotCyclingActivity => "the FIT activity is not cycling",
+        error.SportMissing => "the FIT session has no sport",
+        error.UnsupportedSport => "only running and cycling FIT activities are supported",
         error.StartTimeMissing,
         error.InvalidStartTime,
         => "the FIT session has no valid start time",

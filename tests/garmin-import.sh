@@ -59,6 +59,21 @@ grep -q "aerobic TE 2.2, anaerobic TE 0" "$temporary_directory/dry-run.txt"
 grep -q "HR zones below Z1 0:26, Z1 9:48, Z2 26:10, Z3 9:55, Z4 0:00, Z5 0:00, above Z5 0:00" \
     "$temporary_directory/dry-run.txt"
 
+RUNNINGMAN_BIN="$fake_runningman" \
+    "$importer" \
+    --dry-run \
+    --sport running \
+    --summary-fixture "$fixture" \
+    "$activity_file" > "$temporary_directory/running-override.txt"
+
+grep -q -- "--sport running" "$temporary_directory/running-override.txt"
+grep -q "Garmin sport cycling, imported as running" \
+    "$temporary_directory/running-override.txt"
+if grep -q "If this ride replaced a planned run" "$temporary_directory/running-override.txt"; then
+    echo "expected running import not to show cycling replacement guidance" >&2
+    exit 1
+fi
+
 printf 'y\n' |
     EDITOR="$fake_editor" \
     RUNNINGMAN_BIN="$fake_runningman" \
@@ -115,5 +130,16 @@ if RUNNINGMAN_BIN="$fake_runningman" \
     "$activity_file" >/dev/null 2>&1
 then
     echo "expected an invalid date to fail" >&2
+    exit 1
+fi
+
+if RUNNINGMAN_BIN="$fake_runningman" \
+    "$importer" \
+    --dry-run \
+    --sport swimming \
+    --summary-fixture "$fixture" \
+    "$activity_file" >/dev/null 2>&1
+then
+    echo "expected an unsupported sport override to fail" >&2
     exit 1
 fi

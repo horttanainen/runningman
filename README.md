@@ -366,7 +366,7 @@ has an activity, the editor file warns that running it will create an
 append-only correction. Reimporting the exact same image also produces a
 warning.
 
-## Import a Garmin cycling activity
+## Import a Garmin activity
 
 Export the original activity from Garmin Connect, or copy its `.fit` file from
 the Edge device, then pass either the FIT file or Garmin's ZIP unchanged:
@@ -375,17 +375,32 @@ the Edge device, then pass either the FIT file or Garmin's ZIP unchanged:
 ./scripts/import-garmin garmin_activity_exports/23767860323.zip
 ```
 
-The importer validates the FIT checksums and reads the cycling session summary
-locally. Date, timer duration, bicycle distance, and average heart rate populate
-dedicated activity fields. Available measurements such as maximum heart rate,
-speed, elevation, calories, cadence, power, training effect, temperature, laps,
-and heart-rate-zone durations are preserved in notes. GPS coordinates and
-device identifiers are not copied into the training log.
+The importer validates the FIT checksums and reads running and cycling session
+summaries locally. It normally selects the sport stored in the FIT file. Date,
+timer duration, distance, and average heart rate populate dedicated activity
+fields. Available measurements such as maximum heart rate, speed, elevation,
+calories, cadence, power, training effect, temperature, laps, and
+heart-rate-zone durations are preserved in notes. GPS coordinates and device
+identifiers are not copied into the training log.
 
 As with the Polar importer, the measured values are shown first. Accepting them
 opens an editable `runningman log` command; saving and exiting records it.
 RPE and pain remain explicit placeholders for manual entry. If the ride replaced
 a planned run, change the generated outcome to `modified` and add a reason.
+
+An Edge records the active device sport profile in the original FIT file.
+Changing the activity type later in Garmin Connect does not necessarily rewrite
+an "Export Original" download. Override a run recorded under a cycling profile
+explicitly:
+
+```sh
+./scripts/import-garmin \
+  --sport running \
+  garmin_activity_exports/23791249774.zip
+```
+
+When the override differs from the FIT sport, both values are retained in the
+activity notes for auditability.
 
 Preview without recording, override the local FIT date, or select another data
 file:
@@ -393,6 +408,7 @@ file:
 ```sh
 ./scripts/import-garmin --dry-run ACTIVITY.fit
 ./scripts/import-garmin --date 2026-07-28 ACTIVITY.fit
+./scripts/import-garmin --sport running ACTIVITY.fit
 ./scripts/import-garmin --data ~/training/running.jsonl ACTIVITY.zip
 ```
 
