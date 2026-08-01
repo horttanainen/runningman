@@ -177,6 +177,50 @@ Use a different file by placing `--data PATH` before the command:
 ./zig-out/bin/runningman --data ~/training/running.jsonl today
 ```
 
+## Encrypt the data file for Git
+
+Encrypt the default data file for the configured runningman GPG recipient:
+
+```sh
+./scripts/encrypt-data
+```
+
+This atomically creates or replaces `runningman-data.jsonl.gpg`. The plaintext
+JSONL file remains gitignored; only the encrypted snapshot should be committed.
+The script is configured for the dedicated runningman key with fingerprint
+`F66219D7C10E26FF1000B9932E2818269A17B4DB` and refuses to modify an existing
+encrypted snapshot if that recipient is unavailable or encryption fails.
+
+Encrypt a non-default data path or choose another output path:
+
+```sh
+./scripts/encrypt-data --data ~/training/running.jsonl
+./scripts/encrypt-data --output ~/training/runningman-data.jsonl.gpg
+```
+
+After pulling on another computer, decrypt the snapshot:
+
+```sh
+./scripts/decrypt-data
+```
+
+If no local plaintext file exists, the script installs the decrypted file. If
+one exists, it is replaced only when it is an exact prefix of the decrypted
+append-only log and the added records include an activity. Identical or older
+snapshots leave the local file unchanged. Divergent logs fail without replacing
+either copy, so activity records from one computer cannot be silently lost.
+
+Use non-default encrypted and plaintext paths with `--input` and `--data`:
+
+```sh
+./scripts/decrypt-data --input ~/training/running.jsonl.gpg \
+  --data ~/training/running.jsonl
+```
+
+Encrypted snapshots cannot be merged. Pull and decrypt the latest snapshot
+before recording on another computer, then encrypt, commit, and push before
+switching computers again.
+
 Every CLI date argument accepts an explicit `YYYY-MM-DD`, a day number in the
 current month such as `26`, `today`, or `tomorrow`. Relative dates use the
 computer's local calendar date; a day number never rolls into another month.
