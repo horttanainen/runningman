@@ -1,0 +1,148 @@
+#!/bin/sh
+set -eu
+
+script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repository_root=$(dirname "$script_directory")
+
+data_path="$repository_root/runningman-data.jsonl"
+encrypted_path=""
+gpg_binary=${GPG_BIN:-gpg}
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ./scripts/decrypt-data [--input PATH] [--data PATH]
+
+Decrypts a runningman GPG snapshot. An existing plaintext data file is replaced
+only when it is an exact prefix of the decrypted append-only log and the added
+records include an activity. Older, identical, and divergent snapshots leave
+the local data unchanged.
+
+Options:
+  --input PATH  Decrypt a non-default GPG snapshot
+  --data PATH   Write to a non-default runningman JSONL file
+  -h, --help    Show this help
+EOF
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+require_value() {
+    option=$1
+    count=$2
+    if [ "$count" -lt 2 ]; then
+        fail "$option requires a value"
+    fi
+}
+
+file_size() {
+    wc -c < "$1" | tr -d '[:space:]'
+}
+
+is_prefix() {
+    prefix_path=$1
+    complete_path=$2
+    prefix_size=$(file_size "$prefix_path")
+    complete_size=$(file_size "$complete_path")
+
+    if [ "$prefix_size" -gt "$complete_size" ]; then
+        return 1
+    fi
+    dd if="$complete_path" bs=1 count="$prefix_size" 2>/dev/null |
+        cmp -s "$prefix_path" -
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --input)
+            require_value "$1" "$#"
+            encrypted_path=$2
+            shift 2
+            ;;
+        --data)
+            require_value "$1" "$#"
+            data_path=$2
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            fail "unknown option $1"
+            ;;
+        *)
+            fail "unexpected argument $1"
+            ;;
+    esac
+done
+
+if [ -z "$encrypted_path" ]; then
+    encrypted_path="$data_path.gpg"
+fi
+if ! command -v "$gpg_binary" >/dev/null 2>&1; then
+    fail "GPG executable not found: $gpg_binary"
+fi
+if [ ! -f "$encrypted_path" ]; then
+    fail "encrypted runningman data file not found: $encrypted_path"
+fi
+if [ "$data_path" = "$encrypted_path" ]; then
+    fail "plaintext data path must differ from the encrypted input path"
+fi
+if [ -d "$data_path" ]; then
+    fail "plaintext data path is a directory: $data_path"
+fi
+
+data_directory=$(dirname "$data_path")
+if [ ! -d "$data_directory" ]; then
+    fail "plaintext data directory not found: $data_directory"
+fi
+
+temporary_directory=$(mktemp -d "$data_directory/.runningman-decrypt.XXXXXX")
+trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
+decrypted_path="$temporary_directory/data.jsonl"
+
+if ! "$gpg_binary" \
+    --pinentry-mode loopback \
+    --output "$decrypted_path" \
+    --decrypt "$encrypted_path"
+then
+    fail "GPG decryption failed; the local plaintext data was not changed"
+fi
+if [ ! -s "$decrypted_path" ]; then
+    fail "GPG produced an empty plaintext data file"
+fi
+
+if [ ! -e "$data_path" ] || [ ! -s "$data_path" ]; then
+    mv "$decrypted_path" "$data_path"
+    printf 'Installed decrypted data: %s\n' "$data_path"
+    exit 0
+fi
+if [ ! -f "$data_path" ]; then
+    fail "plaintext data path is not a regular file: $data_path"
+fi
+if cmp -s "$data_path" "$decrypted_path"; then
+    printf 'Local data is already identical; nothing changed.\n'
+    exit 0
+fi
+if is_prefix "$decrypted_path" "$data_path"; then
+    printf 'Local data is newer than the encrypted snapshot; nothing changed.\n'
+    exit 0
+fi
+if ! is_prefix "$data_path" "$decrypted_path"; then
+    fail "local and encrypted logs have diverged; refusing to overwrite local data"
+fi
+
+local_size=$(file_size "$data_path")
+if ! dd if="$decrypted_path" bs=1 skip="$local_size" 2>/dev/null |
+    grep -q '"type":"activity"'
+then
+    printf 'Encrypted snapshot has no newer activity records; nothing changed.\n'
+    exit 0
+fi
+
+mv "$decrypted_path" "$data_path"
+printf 'Installed newer decrypted activity data: %s\n' "$data_path"

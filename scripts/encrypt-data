@@ -1,0 +1,109 @@
+#!/bin/sh
+set -eu
+
+script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repository_root=$(dirname "$script_directory")
+
+recipient_fingerprint="F66219D7C10E26FF1000B9932E2818269A17B4DB"
+data_path="$repository_root/runningman-data.jsonl"
+output_path=""
+gpg_binary=${GPG_BIN:-gpg}
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ./scripts/encrypt-data [--data PATH] [--output PATH]
+
+Encrypts the runningman JSONL data file for the repository's configured GPG
+recipient. The default output is the data path with a .gpg suffix.
+
+Options:
+  --data PATH    Encrypt a non-default runningman JSONL file
+  --output PATH  Write the encrypted snapshot to a different path
+  -h, --help     Show this help
+EOF
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+require_value() {
+    option=$1
+    count=$2
+    if [ "$count" -lt 2 ]; then
+        fail "$option requires a value"
+    fi
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --data)
+            require_value "$1" "$#"
+            data_path=$2
+            shift 2
+            ;;
+        --output)
+            require_value "$1" "$#"
+            output_path=$2
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            fail "unknown option $1"
+            ;;
+        *)
+            fail "unexpected argument $1"
+            ;;
+    esac
+done
+
+if [ -z "$output_path" ]; then
+    output_path="$data_path.gpg"
+fi
+if ! command -v "$gpg_binary" >/dev/null 2>&1; then
+    fail "GPG executable not found: $gpg_binary"
+fi
+if [ ! -f "$data_path" ]; then
+    fail "runningman data file not found: $data_path"
+fi
+if [ "$data_path" = "$output_path" ]; then
+    fail "encrypted output must differ from the plaintext data path"
+fi
+if [ -d "$output_path" ]; then
+    fail "encrypted output path is a directory: $output_path"
+fi
+
+output_directory=$(dirname "$output_path")
+if [ ! -d "$output_directory" ]; then
+    fail "encrypted output directory not found: $output_directory"
+fi
+if ! "$gpg_binary" --batch --list-keys "$recipient_fingerprint" >/dev/null 2>&1; then
+    fail "configured GPG recipient is not available: $recipient_fingerprint"
+fi
+
+temporary_directory=$(mktemp -d "$output_directory/.runningman-encrypt.XXXXXX")
+trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
+encrypted_path="$temporary_directory/data.jsonl.gpg"
+
+if ! "$gpg_binary" \
+    --batch \
+    --output "$encrypted_path" \
+    --encrypt \
+    --recipient "$recipient_fingerprint" \
+    "$data_path"
+then
+    fail "GPG encryption failed; the existing encrypted snapshot was not changed"
+fi
+if [ ! -s "$encrypted_path" ]; then
+    fail "GPG produced an empty encrypted snapshot"
+fi
+
+mv "$encrypted_path" "$output_path"
+printf 'Encrypted %s\n' "$data_path"
+printf 'Recipient: %s\n' "$recipient_fingerprint"
+printf 'Output: %s\n' "$output_path"
