@@ -7,6 +7,7 @@ const evidence_ledger = @import("evidence_ledger.zig");
 const model = @import("model.zig");
 const plan_explanation = @import("plan_explanation.zig");
 const plan_generator = @import("plan_generator.zig");
+const plan_markdown = @import("plan_markdown.zig");
 const plan_provenance = @import("plan_provenance.zig");
 const plan_revision = @import("plan_revision.zig");
 const plan_validator = @import("plan_validator.zig");
@@ -464,6 +465,10 @@ fn commandPlan(
         try commandPlanExplain(allocator, io, writer, storage, args[1..]);
         return;
     }
+    if (std.mem.eql(u8, action, "markdown")) {
+        try commandPlanMarkdown(allocator, io, writer, storage, args[1..]);
+        return;
+    }
 
     if (args.len != 2) return error.PlanFileRequired;
     const revision = try plan_revision.load(allocator, io, args[1]);
@@ -492,6 +497,64 @@ fn commandPlan(
     } else {
         return error.UnknownPlanAction;
     }
+}
+
+fn commandPlanMarkdown(
+    allocator: std.mem.Allocator,
+    io: Io,
+    writer: *Io.Writer,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    var proposal_path: ?[]const u8 = null;
+    var output_path: ?[]const u8 = null;
+
+    var index: usize = 0;
+    if (args.len != 0 and !std.mem.startsWith(u8, args[0], "--")) {
+        proposal_path = args[0];
+        index = 1;
+    }
+    while (index < args.len) {
+        const flag = args[index];
+        index += 1;
+        if (index >= args.len) return error.MissingFlagValue;
+        const value = args[index];
+        index += 1;
+
+        if (std.mem.eql(u8, flag, "--output")) {
+            output_path = value;
+        } else {
+            return error.UnknownFlag;
+        }
+    }
+
+    if (proposal_path) |path| {
+        const revision = try plan_revision.load(allocator, io, path);
+        try plan_revision.validate(storage, revision);
+        _ = try plan_validator.validateEmbedded(allocator, revision);
+        if (output_path) |destination| {
+            try plan_markdown.saveProposal(io, destination, revision);
+            try writer.print(
+                "Wrote a friendly {d}-week training plan to {s}.\n",
+                .{ revision.weeks.len, destination },
+            );
+            return;
+        }
+        try plan_markdown.printProposal(writer, revision);
+        return;
+    }
+
+    const active_schedule = storage.schedules.get(storage.max_schedule_id) orelse
+        return error.NoScheduleForDate;
+    if (output_path) |destination| {
+        try plan_markdown.saveSchedule(io, destination, storage, active_schedule);
+        try writer.print(
+            "Wrote a friendly {d}-week training plan to {s}.\n",
+            .{ active_schedule.plan_weeks.len, destination },
+        );
+        return;
+    }
+    try plan_markdown.printSchedule(writer, storage, active_schedule);
 }
 
 fn commandPlanExplain(
@@ -952,6 +1015,7 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman [--data PATH] plan generate RUNNER_PROFILE.json --output PROPOSED_PLAN.json [--policy POLICY.json] [--evidence EVIDENCE_LEDGER.json]
         \\  runningman [--data PATH] plan preview REVISION.json
         \\  runningman [--data PATH] plan apply REVISION.json
+        \\  runningman [--data PATH] plan markdown [REVISION.json] [--output TRAINING_PLAN.md]
         \\  runningman [--data PATH] plan explain [DATE_REFERENCE|REVISION.json [DATE_REFERENCE]]
         \\  runningman [--data PATH] review [--weeks N] [--ending DATE]
         \\  runningman [--data PATH] export [--format markdown|jsonl] [--weeks N] [--ending DATE]
@@ -1078,7 +1142,7 @@ fn friendlyError(err: anyerror) []const u8 {
         error.PlanAssessmentProfileRequired => "plan assess requires a runner profile JSON file",
         error.ProfileOutsidePolicyScope => "the runner profile is outside the selected policy's supported scope",
         error.MissingAssessmentPolicyRule => "the policy is missing a rule required to explain the assessment",
-        error.MissingPlanAction => "plan requires `assess`, `generate`, `preview`, or `apply`",
+        error.MissingPlanAction => "plan requires `assess`, `generate`, `preview`, `markdown`, or `apply`",
         error.PlanGenerationProfileRequired => "plan generate requires a runner profile JSON file",
         error.PlanGenerationOutputRequired => "plan generate requires `--output PROPOSED_PLAN.json`",
         error.RaceDateUnavailable => "the race date cannot be listed as unavailable",
@@ -1139,8 +1203,8 @@ fn friendlyError(err: anyerror) []const u8 {
         error.GeneratedTaperWithoutPeak => "generated taper has no preceding peak volume",
         error.GeneratedTaperVolumeInvalid => "generated taper reduction is outside policy bounds",
         error.GeneratedTaperMissingIntensity => "generated taper does not retain a quality session",
-        error.PlanFileRequired => "plan preview/apply requires exactly one revision JSON file",
-        error.UnknownPlanAction => "plan action must be generate, preview, apply, or explain",
+        error.PlanFileRequired => "plan preview or apply requires exactly one revision JSON file",
+        error.UnknownPlanAction => "plan action must be generate, preview, markdown, apply, or explain",
         error.InvalidPlanExplainCommand => "plan explain accepts no arguments, DATE_REFERENCE, REVISION.json, or REVISION.json DATE_REFERENCE",
         error.PlanAlreadyPeriodized => "the latest schedule is already periodized",
         error.RevisionFileNotFound => "the revision JSON file was not found",

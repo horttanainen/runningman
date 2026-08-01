@@ -9,6 +9,8 @@ data_file="$temporary_directory/training.jsonl"
 
 "$binary" help > "$temporary_directory/help.txt"
 grep -Fq "runningman [--data PATH] [DATE_REFERENCE]" "$temporary_directory/help.txt"
+grep -Fq "plan markdown [REVISION.json] [--output TRAINING_PLAN.md]" \
+    "$temporary_directory/help.txt"
 grep -Fq "Date references accept YYYY-MM-DD, a day in the current month, today, or tomorrow." \
     "$temporary_directory/help.txt"
 
@@ -64,6 +66,7 @@ grep -q "immutable 13-week periodized running schedule" "$temporary_directory/in
 generated_data_file="$temporary_directory/generated-data.jsonl"
 generated_plan="$temporary_directory/generated-plan.json"
 generated_plan_again="$temporary_directory/generated-plan-again.json"
+generated_markdown="$temporary_directory/training-plan.md"
 "$binary" --data "$generated_data_file" init 2026-07-20 >/dev/null
 "$binary" --data "$generated_data_file" plan generate examples/runner-profile.json \
     --output "$generated_plan" > "$temporary_directory/generate.txt"
@@ -93,6 +96,26 @@ grep -q '"volume_method": "build_progression"' "$generated_plan"
 grep -q '"recipe_id": "aerobic-intervals"' "$generated_plan"
 grep -q '"recipe_id": "continuous-threshold"' "$generated_plan"
 grep -q '"recipe_id": "race-week-sharpening"' "$generated_plan"
+"$binary" --data "$generated_data_file" plan markdown "$generated_plan" \
+    --output "$generated_markdown" > "$temporary_directory/markdown.txt"
+grep -Fq "Wrote a friendly 13-week training plan to $generated_markdown" \
+    "$temporary_directory/markdown.txt"
+grep -q "# Half-marathon training plan" "$generated_markdown"
+grep -q "## Plan at a glance" "$generated_markdown"
+grep -q "| 1 | 2026-07-20–2026-07-26 | Foundation | 30.0 km | 12.0 km |" \
+    "$generated_markdown"
+grep -q "## Week 1: Foundation" "$generated_markdown"
+grep -q "Establish sustainable frequency" "$generated_markdown"
+grep -q "### Tuesday, 2026-07-21 — Quality" "$generated_markdown"
+grep -q "\*\*Run\*\*" "$generated_markdown"
+grep -q "\*\*Bicycle instead\*\*" "$generated_markdown"
+grep -q "3 × 5:15 at controlled hard RPE 6–8" "$generated_markdown"
+grep -q "No bicycle workout is equivalent to the half-marathon race" "$generated_markdown"
+grep -q "After exporting completed activities from Garmin Connect" "$generated_markdown"
+if grep -q "Planner provenance" "$generated_markdown"; then
+    echo "expected friendly Markdown to omit internal planner provenance" >&2
+    exit 1
+fi
 "$binary" --data "$generated_data_file" plan generate examples/runner-profile.json \
     --output "$generated_plan_again" >/dev/null
 cmp "$generated_plan" "$generated_plan_again"
@@ -235,6 +258,16 @@ grep -q '"plan_provenance":{' "$generated_data_file"
 grep -q '"generator_version":"runningman-planner-v2"' "$generated_data_file"
 grep -q '"decision":{"recipe_id":"aerobic-intervals"' "$generated_data_file"
 grep -q '"plan_weeks":\[' "$generated_data_file"
+active_markdown="$temporary_directory/active-training-plan.md"
+"$binary" --data "$generated_data_file" plan markdown > "$active_markdown"
+grep -q "# Half-marathon training plan" "$active_markdown"
+grep -q "## Week 13: Race" "$active_markdown"
+saved_active_markdown="$temporary_directory/saved-active-training-plan.md"
+"$binary" --data "$generated_data_file" plan markdown \
+    --output "$saved_active_markdown" > "$temporary_directory/active-markdown.txt"
+grep -Fq "Wrote a friendly 13-week training plan to $saved_active_markdown" \
+    "$temporary_directory/active-markdown.txt"
+cmp "$active_markdown" "$saved_active_markdown"
 "$binary" --data "$generated_data_file" 2026-07-21 \
     > "$temporary_directory/generated-reload.txt"
 grep -q "Schedule #2" "$temporary_directory/generated-reload.txt"

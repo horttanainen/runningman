@@ -53,6 +53,11 @@ pub fn segmentDurationEstimate(segment: model.Segment) DurationEstimate {
 }
 
 pub fn printDetails(writer: *Io.Writer, value: model.Workout, indent: []const u8) !void {
+    try printRunningDetails(writer, value, indent);
+    try printBicycleReplacement(writer, value, indent);
+}
+
+pub fn printRunningDetails(writer: *Io.Writer, value: model.Workout, indent: []const u8) !void {
     for (value.segments) |segment| {
         try writer.print("{s}- {s}: ", .{ indent, segment.label });
         try printSegmentPrescription(writer, segment);
@@ -77,8 +82,6 @@ pub fn printDetails(writer: *Io.Writer, value: model.Workout, indent: []const u8
         try printDurationRange(writer, estimate.minimum_seconds, estimate.maximum_seconds);
         try writer.writeByte('\n');
     }
-
-    try printBicycleReplacement(writer, value, indent);
 }
 
 pub fn printBicycleReplacement(
@@ -100,6 +103,23 @@ pub fn printBicycleReplacement(
         "{s}Bicycle replacement (conservative time-and-effort match; not a proven 1:1 equivalence):\n",
         .{indent},
     );
+    try printBicycleDetails(writer, value, indent);
+}
+
+pub fn printBicycleDetails(
+    writer: *Io.Writer,
+    value: model.Workout,
+    indent: []const u8,
+) !void {
+    if (std.mem.eql(u8, value.kind, "rest")) return;
+    if (std.mem.eql(u8, value.kind, "race")) {
+        try writer.print(
+            "{s}- No bicycle workout is equivalent to the half-marathon race.\n",
+            .{indent},
+        );
+        return;
+    }
+
     var total_ride_seconds: u32 = 0;
     var total_is_complete = true;
     for (value.segments, 0..) |segment, index| {

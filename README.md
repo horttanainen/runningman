@@ -59,6 +59,7 @@ Generate a deterministic proposal against an initialized append-only data file:
   --output proposed-plan.json
 ./zig-out/bin/runningman plan preview proposed-plan.json
 ./zig-out/bin/runningman plan apply proposed-plan.json
+./zig-out/bin/runningman plan markdown --output training-plan.md
 ```
 
 Generation allocates the macrocycle, weekly volume, long-run progression,
@@ -78,6 +79,16 @@ evidence ledger, the assessment used for pacing, and structured decisions for
 every week and workout. Applying a proposal preserves the same provenance in
 the append-only schedule revision. No generation timestamp is included, so
 identical source files still produce byte-identical proposals.
+
+With an applied planner-generated schedule, `runningman plan markdown` writes
+the friendly plan directly to standard output. Add `--output training-plan.md`
+to save it instead. To inspect an unapplied proposal, pass its path explicitly:
+`runningman plan markdown proposed-plan.json`. The document starts with a
+compact whole-plan table, then presents each week with its purpose, planned
+volume, daily run instructions, and the time-and-effort-matched bicycle option.
+Rest days remain visible, while internal schedule IDs, policy rule IDs, and
+planner provenance stay in the structured data rather than cluttering the
+shared document.
 
 Explain an active schedule, one active workout, a proposal, or one proposed
 workout without selecting a mode flag:
