@@ -1,4 +1,5 @@
 const plan_provenance = @import("plan_provenance.zig");
+const runner_profile = @import("runner_profile.zig");
 
 pub const EventType = enum {
     schedule,
@@ -63,6 +64,9 @@ pub const Workout = struct {
     distance_max_km: ?f64,
     details: []const u8,
     segments: []const Segment,
+    terrain: ?runner_profile.Surface = null,
+    ascent_meters: ?u32 = null,
+    descent_meters: ?u32 = null,
     decision: ?plan_provenance.WorkoutDecision = null,
     recorded_at: i64,
 };
@@ -78,6 +82,8 @@ pub const Activity = struct {
     distance_km: ?f64,
     duration_seconds: ?u32,
     average_heart_rate: ?u16,
+    ascent_meters: ?u32 = null,
+    descent_meters: ?u32 = null,
     rpe: ?u8,
     feeling: ?u8,
     pain: ?u8,
@@ -129,6 +135,7 @@ pub const Event = struct {
     distance_max_km: ?f64 = null,
     details: ?[]const u8 = null,
     segments: ?[]const Segment = null,
+    terrain: ?runner_profile.Surface = null,
     decision: ?plan_provenance.WorkoutDecision = null,
 
     status: ?ActivityStatus = null,
@@ -137,6 +144,8 @@ pub const Event = struct {
     distance_km: ?f64 = null,
     duration_seconds: ?u32 = null,
     average_heart_rate: ?u16 = null,
+    ascent_meters: ?u32 = null,
+    descent_meters: ?u32 = null,
     rpe: ?u8 = null,
     feeling: ?u8 = null,
     pain: ?u8 = null,
@@ -187,6 +196,9 @@ pub fn workoutEvent(value: Workout) Event {
         .distance_max_km = value.distance_max_km,
         .details = value.details,
         .segments = value.segments,
+        .terrain = value.terrain,
+        .ascent_meters = value.ascent_meters,
+        .descent_meters = value.descent_meters,
         .decision = value.decision,
         .recorded_at = value.recorded_at,
     };
@@ -205,6 +217,8 @@ pub fn activityEvent(value: Activity) Event {
         .distance_km = value.distance_km,
         .duration_seconds = value.duration_seconds,
         .average_heart_rate = value.average_heart_rate,
+        .ascent_meters = value.ascent_meters,
+        .descent_meters = value.descent_meters,
         .rpe = value.rpe,
         .feeling = value.feeling,
         .pain = value.pain,

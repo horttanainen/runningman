@@ -64,6 +64,15 @@ pub const WeekDecision = struct {
     long_run_progression_limit_km: f64,
     phase_week: u8,
     phase_week_count: u8,
+    target_core_duration_seconds: ?u32 = null,
+    previous_long_run_duration_seconds: ?u32 = null,
+    long_run_progression_limit_seconds: ?u32 = null,
+    target_ascent_meters: ?u32 = null,
+    previous_ascent_meters: ?u32 = null,
+    ascent_progression_limit_meters: ?u32 = null,
+    long_run_ascent_meters: ?u32 = null,
+    trail_rule_id: ?[]const u8 = null,
+    load_basis: runner_profile.TrainingLoadBasis = .distance,
 };
 
 pub const PlanWeek = struct {
@@ -73,6 +82,10 @@ pub const PlanWeek = struct {
     phase: []const u8,
     target_core_distance_km: f64,
     long_run_distance_km: f64,
+    target_core_duration_seconds: ?u32 = null,
+    long_run_duration_seconds: ?u32 = null,
+    target_ascent_meters: ?u32 = null,
+    long_run_ascent_meters: ?u32 = null,
     decision: WeekDecision,
 };
 
@@ -92,6 +105,7 @@ pub const DistanceMethod = enum {
     quality_progression,
     weekly_long_run,
     race_distance,
+    duration_progression,
 };
 
 pub const PaceMethod = enum {
@@ -121,6 +135,8 @@ pub const QualityProgressionDecision = struct {
     repetition_distance_km: ?f64 = null,
     repetitions: u8,
     recovery_seconds: ?u16 = null,
+    work_duration_seconds: ?u32 = null,
+    previous_work_duration_seconds: ?u32 = null,
 };
 
 pub const WorkoutDecision = struct {
@@ -131,11 +147,17 @@ pub const WorkoutDecision = struct {
     pace_method: PaceMethod,
     week_target_core_distance_km: f64,
     allocated_distance_km: f64,
+    week_target_core_duration_seconds: ?u32 = null,
+    allocated_duration_seconds: ?u32 = null,
     training_pace_anchor_seconds: ?u32 = null,
     scheduled_weekday: runner_profile.Weekday,
     preferred_weekday: ?runner_profile.Weekday = null,
     preference_honored: ?bool = null,
     quality_progression: ?QualityProgressionDecision = null,
+    planned_ascent_meters: ?u32 = null,
+    planned_descent_meters: ?u32 = null,
+    terrain: ?runner_profile.Surface = null,
+    load_basis: runner_profile.TrainingLoadBasis = .distance,
 };
 
 pub fn hashFile(

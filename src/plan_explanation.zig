@@ -127,19 +127,24 @@ fn printWeek(
     week: plan_provenance.PlanWeek,
 ) !void {
     const decision = week.decision;
-    try writer.print(
-        "  Week {d} ({s}–{s}): {s}, {d:.1} km core, {d:.1} km long run\n" ++
-            "    Purpose: {s}",
-        .{
-            week.week,
-            week.start_date,
-            week.end_date,
-            week.phase,
+    try writer.print("  Week {d} ({s}–{s}): {s}", .{
+        week.week,
+        week.start_date,
+        week.end_date,
+        week.phase,
+    });
+    if (week.target_core_duration_seconds) |duration_seconds| {
+        try writer.print(", {d} minutes core", .{duration_seconds / 60});
+        if (week.long_run_duration_seconds) |long_seconds| {
+            try writer.print(", {d} minutes long run", .{long_seconds / 60});
+        }
+    } else {
+        try writer.print(", {d:.1} km core, {d:.1} km long run", .{
             week.target_core_distance_km,
             week.long_run_distance_km,
-            phasePurpose(policy, week.phase),
-        },
-    );
+        });
+    }
+    try writer.print("\n    Purpose: {s}", .{phasePurpose(policy, week.phase)});
     try writer.print(
         "; phase week {d} of {d}\n",
         .{
@@ -154,18 +159,40 @@ fn printWeek(
     if (decision.applied_volume_fraction) |fraction| {
         try writer.print(" at {d:.0}%", .{fraction * 100});
     }
-    try writer.print(
-        "\n    Limits: peak {d:.1} km; long-run share {d:.1} km; progression {d:.1} km\n" ++
-            "    Rules: {s}, {s}, {s}\n",
-        .{
-            decision.peak_volume_limit_km,
-            decision.long_run_weekly_share_limit_km,
-            decision.long_run_progression_limit_km,
-            decision.periodization_rule_id,
-            decision.volume_rule_id,
-            decision.long_run_rule_id,
-        },
-    );
+    if (decision.target_core_duration_seconds) |duration_seconds| {
+        try writer.print("\n    Duration target: {d} minutes", .{duration_seconds / 60});
+        if (decision.long_run_progression_limit_seconds) |limit_seconds| {
+            try writer.print("; long-run progression limit {d} minutes", .{limit_seconds / 60});
+        }
+        try writer.writeByte('\n');
+    } else {
+        try writer.print(
+            "\n    Limits: peak {d:.1} km; long-run share {d:.1} km; progression {d:.1} km\n",
+            .{
+                decision.peak_volume_limit_km,
+                decision.long_run_weekly_share_limit_km,
+                decision.long_run_progression_limit_km,
+            },
+        );
+    }
+    try writer.print("    Rules: {s}, {s}, {s}\n", .{
+        decision.periodization_rule_id,
+        decision.volume_rule_id,
+        decision.long_run_rule_id,
+    });
+    if (week.target_ascent_meters) |ascent| {
+        try writer.print("    Vertical target: {d} m ascent", .{ascent});
+        if (week.long_run_ascent_meters) |long_ascent| {
+            try writer.print("; long run {d} m", .{long_ascent});
+        }
+        if (decision.previous_ascent_meters) |previous| {
+            try writer.print("; previous week {d} m", .{previous});
+        }
+        if (decision.ascent_progression_limit_meters) |limit| {
+            try writer.print("; progression limit {d} m", .{limit});
+        }
+        try writer.writeByte('\n');
+    }
 }
 
 fn printStoredWorkout(
@@ -182,6 +209,9 @@ fn printStoredWorkout(
         .distance_min_km = planned.distance_min_km,
         .distance_max_km = planned.distance_max_km,
         .segments = planned.segments,
+        .terrain = planned.terrain,
+        .ascent_meters = planned.ascent_meters,
+        .descent_meters = planned.descent_meters,
         .decision = planned.decision,
     };
     try printWorkout(writer, policy, proposed);
@@ -200,8 +230,7 @@ fn printWorkout(
             "  {s}: {s} ({s})\n" ++
             "  Prescription: {s}\n" ++
             "  Recipe: {s} — {s}\n" ++
-            "  Allocation: {s}; {d:.1} km from a {d:.1} km core week using {s}\n" ++
-            "  Pace method: {s}",
+            "  Allocation: {s}; ",
         .{
             workout.date,
             workout.kind,
@@ -210,29 +239,50 @@ fn printWorkout(
             recipe.recipe_id,
             recipe.description,
             @tagName(decision.allocation_role),
-            decision.allocated_distance_km,
-            decision.week_target_core_distance_km,
-            @tagName(decision.distance_method),
-            @tagName(decision.pace_method),
         },
     );
+    if (decision.allocated_duration_seconds) |duration_seconds| {
+        try writer.print("{d} minutes", .{duration_seconds / 60});
+        if (decision.week_target_core_duration_seconds) |week_seconds| {
+            try writer.print(" from a {d} minute core week", .{week_seconds / 60});
+        }
+    } else {
+        try writer.print("{d:.1} km from a {d:.1} km core week", .{
+            decision.allocated_distance_km,
+            decision.week_target_core_distance_km,
+        });
+    }
+    try writer.print(" using {s}\n  Pace method: {s}", .{
+        @tagName(decision.distance_method),
+        @tagName(decision.pace_method),
+    });
     if (decision.training_pace_anchor_seconds) |anchor| {
         try writer.writeAll(" from ");
         try printDuration(writer, anchor);
     }
     try writer.writeByte('\n');
+    if (decision.terrain) |terrain| {
+        try writer.print("  Terrain: {s}", .{@tagName(terrain)});
+        if (decision.planned_ascent_meters) |ascent| try writer.print("; {d} m ascent", .{ascent});
+        if (decision.planned_descent_meters) |descent| try writer.print("; {d} m descent", .{descent});
+        try writer.writeByte('\n');
+    }
     if (decision.quality_progression) |quality| {
-        try writer.print(
-            "  Quality progression: {s}; {s}; phase week {d} of {d}; " ++
-                "{d:.1} km work",
-            .{
-                quality.stage_id,
-                @tagName(quality.load_method),
-                quality.phase_week,
-                quality.phase_week_count,
-                quality.work_distance_km,
-            },
-        );
+        try writer.print("  Quality progression: {s}; {s}; phase week {d} of {d}; ", .{
+            quality.stage_id,
+            @tagName(quality.load_method),
+            quality.phase_week,
+            quality.phase_week_count,
+        });
+        if (quality.work_duration_seconds) |work_seconds| {
+            try writer.print("{d} minutes work", .{work_seconds / 60});
+            if (quality.previous_work_duration_seconds) |previous| {
+                const change = @as(i64, work_seconds) - @as(i64, previous);
+                try writer.print(" ({d} seconds from the previous quality session)", .{change});
+            }
+        } else {
+            try writer.print("{d:.1} km work", .{quality.work_distance_km});
+        }
         if (quality.previous_work_distance_km) |previous| {
             const change = quality.work_distance_km - previous;
             if (change >= 0) {

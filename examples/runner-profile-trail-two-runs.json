@@ -1,0 +1,94 @@
+{
+  "schema_version": 2,
+  "profile_id": "technical-trail-half-2026-10-03",
+  "plan_start_date": {
+    "value": "2026-08-10",
+    "source": "user_entered"
+  },
+  "goal": {
+    "race_date": {
+      "value": "2026-10-03",
+      "source": "user_entered"
+    },
+    "race_distance": {
+      "value": "half_marathon",
+      "source": "user_entered"
+    },
+    "intent": {
+      "value": "performance",
+      "source": "user_entered"
+    },
+    "target_time_seconds": {
+      "value": 10800,
+      "source": "user_entered"
+    },
+    "course": {
+      "surface": {
+        "value": "trail",
+        "source": "user_entered"
+      },
+      "total_ascent_meters": {
+        "value": 800,
+        "source": "user_entered"
+      },
+      "technicality": {
+        "value": "technical",
+        "source": "user_entered"
+      }
+    }
+  },
+  "availability": {
+    "running_days": {
+      "value": ["thursday", "sunday"],
+      "source": "user_entered"
+    },
+    "preferred_long_run_day": {
+      "value": "sunday",
+      "source": "defaulted"
+    },
+    "preferred_quality_day": {
+      "value": "thursday",
+      "source": "defaulted"
+    }
+  },
+  "baseline": {
+    "training_load_basis": {
+      "value": "duration",
+      "source": "user_entered"
+    },
+    "average_weekly_distance_km": {
+      "value": 0,
+      "source": "measured"
+    },
+    "longest_run_km": {
+      "value": 10,
+      "source": "measured"
+    },
+    "recent_performances": {
+      "value": [
+        {
+          "date": "2026-07-05",
+          "distance": "ten_km",
+          "duration_seconds": 4860,
+          "kind": "training",
+          "effort": "moderate"
+        }
+      ],
+      "source": "measured"
+    },
+    "longest_run_duration_seconds": {
+      "value": 4860,
+      "source": "measured"
+    }
+  },
+  "constraints": {
+    "recent_training_interruption_days": {
+      "value": 14,
+      "source": "user_entered"
+    },
+    "notes": {
+      "value": "Weekly distance and ascent history are unknown; use duration-based load without modeling other exercise.",
+      "source": "user_entered"
+    }
+  }
+}

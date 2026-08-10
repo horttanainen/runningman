@@ -41,6 +41,37 @@ printf '%s\n' \
     "{\"schema_version\":1,\"type\":\"activity\",\"id\":1,\"date\":\"2026-07-28\",\"notes\":\"source_fit_sha256=$activity_hash\",\"recorded_at\":1}" \
     > "$data_file"
 
+activity_export_directory="$temporary_directory/garmin_activity_exports"
+mkdir "$activity_export_directory"
+printf '%s\n' 'older fixture FIT content' > "$activity_export_directory/older.fit"
+printf '%s\n' 'newer fixture ZIP content' > "$activity_export_directory/newer.zip"
+printf '%s\n' 'unsupported content' > "$activity_export_directory/newest.txt"
+touch -t 202608010100 "$activity_export_directory/older.fit"
+touch -t 202608020100 "$activity_export_directory/newer.zip"
+touch -t 202608030100 "$activity_export_directory/newest.txt"
+
+GARMIN_ACTIVITY_EXPORT_DIR="$activity_export_directory" \
+RUNNINGMAN_BIN="$fake_runningman" \
+    "$importer" \
+    --dry-run \
+    --summary-fixture "$fixture" > "$temporary_directory/default-activity.txt"
+
+grep -q "# Generated from newer.zip" "$temporary_directory/default-activity.txt"
+grep -q "source newer.zip" "$temporary_directory/default-activity.txt"
+
+empty_activity_export_directory="$temporary_directory/empty-garmin-activity-exports"
+mkdir "$empty_activity_export_directory"
+if GARMIN_ACTIVITY_EXPORT_DIR="$empty_activity_export_directory" \
+    RUNNINGMAN_BIN="$fake_runningman" \
+    "$importer" \
+    --dry-run \
+    --summary-fixture "$fixture" > "$temporary_directory/no-default-activity.txt" 2>&1
+then
+    echo "expected an empty Garmin activity export directory to fail" >&2
+    exit 1
+fi
+grep -q "no FIT or ZIP activities found" "$temporary_directory/no-default-activity.txt"
+
 RUNNINGMAN_BIN="$fake_runningman" \
     "$importer" \
     --dry-run \
@@ -54,6 +85,8 @@ grep -q -- "--sport cycling" "$temporary_directory/dry-run.txt"
 grep -q -- "--distance 21.52" "$temporary_directory/dry-run.txt"
 grep -q -- "--duration '46:23'" "$temporary_directory/dry-run.txt"
 grep -q -- "--avg-hr 150" "$temporary_directory/dry-run.txt"
+grep -q -- "--ascent-m 128" "$temporary_directory/dry-run.txt"
+grep -q -- "--descent-m 134" "$temporary_directory/dry-run.txt"
 grep -q "max HR 171 bpm" "$temporary_directory/dry-run.txt"
 grep -q "aerobic TE 2.2, anaerobic TE 0" "$temporary_directory/dry-run.txt"
 grep -q "HR zones below Z1 0:26, Z1 9:48, Z2 26:10, Z3 9:55, Z4 0:00, Z5 0:00, above Z5 0:00" \
@@ -98,6 +131,10 @@ grep -Fxq -- "--duration" "$capture_file"
 grep -Fxq "46:23" "$capture_file"
 grep -Fxq -- "--avg-hr" "$capture_file"
 grep -Fxq "150" "$capture_file"
+grep -Fxq -- "--ascent-m" "$capture_file"
+grep -Fxq "128" "$capture_file"
+grep -Fxq -- "--descent-m" "$capture_file"
+grep -Fxq "134" "$capture_file"
 grep -Fxq -- "--rpe" "$capture_file"
 grep -Fxq "7" "$capture_file"
 grep -Fxq -- "--pain" "$capture_file"

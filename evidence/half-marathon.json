@@ -168,6 +168,77 @@
         "BASE-01",
         "TARGET-01"
       ]
+    },
+    {
+      "evidence_id": "E-TRAIL-PERF-001",
+      "citation": {
+        "title": "Physiological Indicators of Trail Running Performance: A Systematic Review",
+        "authors": "Arthur de Waal, Reinout Wiersma, Marco Mensink",
+        "year": 2021,
+        "url": "https://pubmed.ncbi.nlm.nih.gov/33508776/"
+      },
+      "population": "Trail runners in races from 7 to 65 kilometres across seven included studies",
+      "training_status": "Mixed recreational and trained trail runners",
+      "intervention": "Observed physiological and anthropometric indicators",
+      "comparison": "Associations between indicators and real-world trail-running performance",
+      "outcomes": [
+        "Aerobic capacity, lactate threshold, velocity at aerobic capacity, and running economy were commonly associated with trail performance"
+      ],
+      "limitations": [
+        "Only seven heterogeneous studies were included",
+        "Associations do not identify one optimal training prescription"
+      ],
+      "planning_implication": "Retain mostly aerobic training while adding course-specific climbing and terrain exposure.",
+      "confidence": "moderate",
+      "policy_rule_ids": ["TRAIL-01"]
+    },
+    {
+      "evidence_id": "E-DOWNHILL-001",
+      "citation": {
+        "title": "Downhill Running: What Are The Effects and How Can We Adapt? A Narrative Review",
+        "authors": "Thibault Bontemps et al.",
+        "year": 2020,
+        "url": "https://pubmed.ncbi.nlm.nih.gov/33037592/"
+      },
+      "population": "Healthy and trained runners represented in downhill-running studies",
+      "training_status": "Mixed",
+      "intervention": "Downhill running and repeated downhill exposure",
+      "comparison": "Different gradients, durations, speeds, and prior exposure",
+      "outcomes": [
+        "Downhill running creates eccentric muscle damage influenced by slope, speed, and duration",
+        "Prior downhill exposure can reduce later muscle-damage responses"
+      ],
+      "limitations": [
+        "The review was narrative and protocols were heterogeneous",
+        "Many studies used small samples and laboratory descents"
+      ],
+      "planning_implication": "Introduce controlled downhill exposure progressively and remove demanding descents from the taper.",
+      "confidence": "moderate",
+      "policy_rule_ids": ["TRAIL-01"]
+    },
+    {
+      "evidence_id": "E-TRAIL-INJURY-001",
+      "citation": {
+        "title": "Injury Prevention, Safe Training Techniques, Rehabilitation, and Return to Sport in Trail Runners",
+        "authors": "Hollie K. Vincent and Kevin R. Vincent",
+        "year": 2022,
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8811510/"
+      },
+      "population": "Trail runners and related off-road running populations represented in the reviewed literature",
+      "training_status": "Mixed",
+      "intervention": "Terrain practice, neuromotor training, strengthening, and downhill technique considerations",
+      "comparison": "Injury patterns and proposed prevention strategies across trail-running settings",
+      "outcomes": [
+        "Lower-leg injuries and ankle sprains are important trail-running concerns",
+        "Practising similar terrain supports trail-specific movement adaptation"
+      ],
+      "limitations": [
+        "Much of the trail-specific injury evidence is observational",
+        "Several prevention recommendations extrapolate from related sports"
+      ],
+      "planning_implication": "Require regular race-like terrain exposure while keeping technical progression explicit and conservative.",
+      "confidence": "low",
+      "policy_rule_ids": ["TRAIL-01"]
     }
   ]
 }

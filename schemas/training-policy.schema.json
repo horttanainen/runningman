@@ -74,6 +74,12 @@
     "missed_workout": {
       "$ref": "#/$defs/missed_workout"
     },
+    "duration_progression": {
+      "$ref": "#/$defs/duration_progression"
+    },
+    "trail_specific": {
+      "$ref": "#/$defs/trail_specific"
+    },
     "workout_categories": {
       "type": "array",
       "minItems": 1,
@@ -391,6 +397,7 @@
         "maximum_weekly_distance_fraction",
         "maximum_session_distance_km",
         "minimum_warmup_cooldown_km",
+        "minimum_taper_warmup_cooldown_km",
         "maximum_warmup_cooldown_km",
         "foundation_repetition_distance_km",
         "foundation_initial_work_fraction",
@@ -414,6 +421,10 @@
           "exclusiveMinimum": 0
         },
         "minimum_warmup_cooldown_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "minimum_taper_warmup_cooldown_km": {
           "type": "number",
           "exclusiveMinimum": 0
         },
@@ -560,6 +571,74 @@
         "preserve_hard_session_spacing": {
           "const": true
         }
+      }
+    },
+    "trail_specific": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "maximum_supported_ascent_meters",
+        "maximum_weekly_ascent_increase_fraction",
+        "maximum_peak_ascent_relative_to_baseline",
+        "maximum_peak_ascent_relative_to_race",
+        "maximum_long_run_race_ascent_fraction",
+        "maximum_long_run_weekly_ascent_fraction",
+        "recovery_ascent_fraction",
+        "quality_ascent_fraction",
+        "demanding_descent_taper_days",
+        "minimum_trail_sessions_per_week",
+        "effort_only_pacing",
+        "unknown_ascent_initial_race_fraction",
+        "unknown_ascent_peak_race_fraction"
+      ],
+      "properties": {
+        "rule_id": { "$ref": "#/$defs/rule_id" },
+        "maximum_supported_ascent_meters": { "$ref": "#/$defs/positive_integer" },
+        "maximum_weekly_ascent_increase_fraction": { "$ref": "#/$defs/fraction" },
+        "maximum_peak_ascent_relative_to_baseline": { "type": "number", "minimum": 1 },
+        "maximum_peak_ascent_relative_to_race": { "type": "number", "minimum": 1 },
+        "maximum_long_run_race_ascent_fraction": { "$ref": "#/$defs/fraction" },
+        "maximum_long_run_weekly_ascent_fraction": { "$ref": "#/$defs/fraction" },
+        "recovery_ascent_fraction": { "$ref": "#/$defs/fraction" },
+        "quality_ascent_fraction": { "$ref": "#/$defs/fraction" },
+        "demanding_descent_taper_days": { "$ref": "#/$defs/positive_integer" },
+        "minimum_trail_sessions_per_week": { "$ref": "#/$defs/positive_integer" },
+        "effort_only_pacing": { "const": true },
+        "unknown_ascent_initial_race_fraction": { "$ref": "#/$defs/fraction" },
+        "unknown_ascent_peak_race_fraction": { "$ref": "#/$defs/fraction" }
+      }
+    },
+    "duration_progression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_core_running_days",
+        "initial_regular_run_seconds",
+        "maximum_regular_run_seconds",
+        "regular_run_weekly_increase_seconds",
+        "default_initial_long_run_seconds",
+        "maximum_initial_long_run_seconds",
+        "maximum_long_run_seconds",
+        "long_run_weekly_increase_seconds",
+        "recovery_duration_fraction",
+        "first_taper_duration_fraction",
+        "final_taper_duration_fraction",
+        "race_week_short_run_seconds"
+      ],
+      "properties": {
+        "minimum_core_running_days": { "$ref": "#/$defs/positive_integer" },
+        "initial_regular_run_seconds": { "$ref": "#/$defs/positive_integer" },
+        "maximum_regular_run_seconds": { "$ref": "#/$defs/positive_integer" },
+        "regular_run_weekly_increase_seconds": { "$ref": "#/$defs/positive_integer" },
+        "default_initial_long_run_seconds": { "$ref": "#/$defs/positive_integer" },
+        "maximum_initial_long_run_seconds": { "$ref": "#/$defs/positive_integer" },
+        "maximum_long_run_seconds": { "$ref": "#/$defs/positive_integer" },
+        "long_run_weekly_increase_seconds": { "$ref": "#/$defs/positive_integer" },
+        "recovery_duration_fraction": { "$ref": "#/$defs/fraction" },
+        "first_taper_duration_fraction": { "$ref": "#/$defs/fraction" },
+        "final_taper_duration_fraction": { "$ref": "#/$defs/fraction" },
+        "race_week_short_run_seconds": { "$ref": "#/$defs/positive_integer" }
       }
     },
     "workout_category": {

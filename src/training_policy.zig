@@ -22,6 +22,38 @@ pub const Support = struct {
     maximum_core_running_days: u8,
 };
 
+pub const TrailSpecific = struct {
+    rule_id: []const u8,
+    maximum_supported_ascent_meters: u32,
+    maximum_weekly_ascent_increase_fraction: f64,
+    maximum_peak_ascent_relative_to_baseline: f64,
+    maximum_peak_ascent_relative_to_race: f64,
+    maximum_long_run_race_ascent_fraction: f64,
+    maximum_long_run_weekly_ascent_fraction: f64,
+    recovery_ascent_fraction: f64,
+    quality_ascent_fraction: f64,
+    demanding_descent_taper_days: u8,
+    minimum_trail_sessions_per_week: u8,
+    effort_only_pacing: bool,
+    unknown_ascent_initial_race_fraction: f64,
+    unknown_ascent_peak_race_fraction: f64,
+};
+
+pub const DurationProgression = struct {
+    minimum_core_running_days: u8,
+    initial_regular_run_seconds: u32,
+    maximum_regular_run_seconds: u32,
+    regular_run_weekly_increase_seconds: u32,
+    default_initial_long_run_seconds: u32,
+    maximum_initial_long_run_seconds: u32,
+    maximum_long_run_seconds: u32,
+    long_run_weekly_increase_seconds: u32,
+    recovery_duration_fraction: f64,
+    first_taper_duration_fraction: f64,
+    final_taper_duration_fraction: f64,
+    race_week_short_run_seconds: u32,
+};
+
 pub const Phase = struct {
     phase_id: []const u8,
     purpose: []const u8,
@@ -89,6 +121,7 @@ pub const QualityProgression = struct {
     maximum_weekly_distance_fraction: f64,
     maximum_session_distance_km: f64,
     minimum_warmup_cooldown_km: f64,
+    minimum_taper_warmup_cooldown_km: f64 = 1,
     maximum_warmup_cooldown_km: f64,
     foundation_repetition_distance_km: f64,
     foundation_initial_work_fraction: f64,
@@ -163,6 +196,8 @@ pub const Policy = struct {
     scheduling: Scheduling,
     optional_run: OptionalRun,
     missed_workout: MissedWorkout,
+    duration_progression: ?DurationProgression = null,
+    trail_specific: ?TrailSpecific = null,
     workout_categories: []const WorkoutCategory,
     workout_recipes: []const WorkoutRecipe,
     rules: []const Rule,
@@ -211,9 +246,56 @@ pub fn validateSnapshot(policy: Policy) !void {
     try validatePeriodization(policy.periodization);
     try validateBaselineAssessment(policy.baseline_assessment);
     try validateProgression(policy);
+    try validateDurationProgression(policy.duration_progression);
+    try validateTrailSpecific(policy);
     try validateQualityProgression(policy);
     try validateWorkouts(policy);
     try validateRuleReferences(policy);
+}
+
+fn validateTrailSpecific(policy: Policy) !void {
+    const trail = policy.trail_specific orelse return;
+    if (trail.rule_id.len == 0 or
+        trail.maximum_supported_ascent_meters == 0 or
+        !validFraction(trail.maximum_weekly_ascent_increase_fraction) or
+        trail.maximum_peak_ascent_relative_to_baseline < 1 or
+        !std.math.isFinite(trail.maximum_peak_ascent_relative_to_baseline) or
+        trail.maximum_peak_ascent_relative_to_race < 1 or
+        !std.math.isFinite(trail.maximum_peak_ascent_relative_to_race) or
+        !validFraction(trail.maximum_long_run_race_ascent_fraction) or
+        !validFraction(trail.maximum_long_run_weekly_ascent_fraction) or
+        !validFraction(trail.recovery_ascent_fraction) or
+        !validFraction(trail.quality_ascent_fraction) or
+        trail.demanding_descent_taper_days == 0 or
+        trail.minimum_trail_sessions_per_week == 0 or
+        !validFraction(trail.unknown_ascent_initial_race_fraction) or
+        !validFraction(trail.unknown_ascent_peak_race_fraction) or
+        trail.unknown_ascent_initial_race_fraction >=
+            trail.unknown_ascent_peak_race_fraction)
+    {
+        return error.InvalidTrailSpecificPolicy;
+    }
+    if (!trail.effort_only_pacing) return error.TrailPolicyRequiresEffortOnlyPacing;
+}
+
+fn validateDurationProgression(optional: ?DurationProgression) !void {
+    const duration = optional orelse return;
+    if (duration.minimum_core_running_days == 0 or
+        duration.initial_regular_run_seconds == 0 or
+        duration.maximum_regular_run_seconds < duration.initial_regular_run_seconds or
+        duration.regular_run_weekly_increase_seconds == 0 or
+        duration.default_initial_long_run_seconds == 0 or
+        duration.maximum_initial_long_run_seconds < duration.default_initial_long_run_seconds or
+        duration.maximum_long_run_seconds < duration.maximum_initial_long_run_seconds or
+        duration.long_run_weekly_increase_seconds == 0 or
+        !validFraction(duration.recovery_duration_fraction) or
+        !validFraction(duration.first_taper_duration_fraction) or
+        !validFraction(duration.final_taper_duration_fraction) or
+        duration.first_taper_duration_fraction < duration.final_taper_duration_fraction or
+        duration.race_week_short_run_seconds == 0)
+    {
+        return error.InvalidDurationProgressionPolicy;
+    }
 }
 
 pub fn printSummary(writer: *Io.Writer, policy: Policy) !void {
@@ -235,6 +317,22 @@ pub fn printSummary(writer: *Io.Writer, policy: Policy) !void {
             policy.evidence_ledger_id,
         },
     );
+    if (policy.trail_specific) |trail| {
+        try writer.print(
+            "Trail extension: up to {d} m race ascent; effort-only pacing; " ++
+                "maximum {d:.0}% weekly ascent increase\n",
+            .{
+                trail.maximum_supported_ascent_meters,
+                trail.maximum_weekly_ascent_increase_fraction * 100,
+            },
+        );
+    }
+    if (policy.duration_progression) |duration| {
+        try writer.print(
+            "Duration-load extension: {d}–{d} core running days\n",
+            .{ duration.minimum_core_running_days, policy.support.maximum_core_running_days },
+        );
+    }
 }
 
 pub fn findRule(policy: Policy, rule_id: []const u8) ?Rule {
@@ -438,6 +536,10 @@ fn validateQualityProgression(policy: Policy) !void {
         !std.math.isFinite(progression.maximum_session_distance_km) or
         progression.minimum_warmup_cooldown_km <= 0 or
         !std.math.isFinite(progression.minimum_warmup_cooldown_km) or
+        progression.minimum_taper_warmup_cooldown_km <= 0 or
+        progression.minimum_taper_warmup_cooldown_km >
+            progression.minimum_warmup_cooldown_km or
+        !std.math.isFinite(progression.minimum_taper_warmup_cooldown_km) or
         progression.maximum_warmup_cooldown_km <
             progression.minimum_warmup_cooldown_km or
         !std.math.isFinite(progression.maximum_warmup_cooldown_km) or
@@ -515,6 +617,11 @@ fn validateRuleReferences(policy: Policy) !void {
     };
     for (rule_ids) |rule_id| {
         if (findRule(policy, rule_id) == null) {
+            return error.UnknownTrainingPolicyRuleReference;
+        }
+    }
+    if (policy.trail_specific) |trail| {
+        if (findRule(policy, trail.rule_id) == null) {
             return error.UnknownTrainingPolicyRuleReference;
         }
     }
@@ -618,6 +725,34 @@ test "training policy schema is valid JSON" {
         @embedFile("../schemas/training-policy.schema.json"),
         .{},
     );
+}
+
+test "older quality progression snapshots retain their warmup and cooldown minimum" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const progression = try std.json.parseFromSliceLeaky(
+        QualityProgression,
+        arena.allocator(),
+        \\{
+        \\  "rule_id": "RECIPE-01",
+        \\  "target_weekly_distance_fraction": 0.2,
+        \\  "maximum_weekly_distance_fraction": 0.22,
+        \\  "maximum_session_distance_km": 8,
+        \\  "minimum_warmup_cooldown_km": 1,
+        \\  "maximum_warmup_cooldown_km": 2,
+        \\  "foundation_repetition_distance_km": 1,
+        \\  "foundation_initial_work_fraction": 0.1,
+        \\  "foundation_weekly_work_increase_km": 1,
+        \\  "interval_recovery_seconds": 120,
+        \\  "recovery_work_fraction": 0.75,
+        \\  "race_week_work_distance_km": 2
+        \\}
+    ,
+        .{ .ignore_unknown_fields = false },
+    );
+
+    try std.testing.expectEqual(@as(f64, 1), progression.minimum_taper_warmup_cooldown_km);
 }
 
 test "rejects a policy rule without reciprocal evidence linkage" {

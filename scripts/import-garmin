@@ -6,6 +6,7 @@ repository_root=$(dirname "$script_directory")
 parser_binary="$repository_root/zig-out/bin/garmin-fit"
 parser_source="$repository_root/src/garmin_fit.zig"
 parser_main="$repository_root/src/garmin_fit_main.zig"
+activity_export_directory=${GARMIN_ACTIVITY_EXPORT_DIR:-"$repository_root/garmin_activity_exports"}
 
 data_path="runningman-data.jsonl"
 date_override=""
@@ -18,12 +19,13 @@ activity_path=""
 usage() {
     cat <<'EOF'
 Usage:
-  ./scripts/import-garmin [--date YYYY-MM-DD] [--sport SPORT] [--data PATH] [--dry-run] FIT_OR_ZIP
+  ./scripts/import-garmin [--date YYYY-MM-DD] [--sport SPORT] [--data PATH] [--dry-run] [FIT_OR_ZIP]
 
 Reads a Garmin running or cycling activity locally, shows the measured summary,
 opens the generated runningman command in $EDITOR, and executes it after the
 editor exits normally. Both an original .fit file and Garmin Connect's exported
-.zip work.
+.zip work. When FIT_OR_ZIP is omitted, the newest supported file in
+garmin_activity_exports/ is used.
 
 Options:
   --date YYYY-MM-DD  Override the local activity date stored in the FIT file
@@ -114,8 +116,33 @@ if [ "$build_only" = true ]; then
     exit 0
 fi
 
+select_latest_activity() {
+    export_directory=$1
+    if [ ! -d "$export_directory" ]; then
+        fail "Garmin activity export directory not found: $export_directory"
+    fi
+
+    for candidate in \
+        "$export_directory"/*.fit \
+        "$export_directory"/*.FIT \
+        "$export_directory"/*.zip \
+        "$export_directory"/*.ZIP
+    do
+        if [ ! -f "$candidate" ]; then
+            continue
+        fi
+        if [ -z "$activity_path" ] || [ "$candidate" -nt "$activity_path" ]; then
+            activity_path=$candidate
+        fi
+    done
+
+    if [ -z "$activity_path" ]; then
+        fail "no FIT or ZIP activities found in $export_directory"
+    fi
+}
+
 if [ -z "$activity_path" ]; then
-    fail "expected one FIT or ZIP path; use --help for usage"
+    select_latest_activity "$activity_export_directory"
 fi
 if [ ! -f "$activity_path" ]; then
     fail "Garmin activity not found: $activity_path"
@@ -409,6 +436,12 @@ fi
     printf '  --duration %s\n' "$(shell_quote "$duration")"
     if [ -n "$average_heart_rate" ]; then
         printf '  --avg-hr %s\n' "$average_heart_rate"
+    fi
+    if [ -n "$ascent_meters" ]; then
+        printf '  --ascent-m %s\n' "$ascent_meters"
+    fi
+    if [ -n "$descent_meters" ]; then
+        printf '  --descent-m %s\n' "$descent_meters"
     fi
     printf '%s\n' '' '  # Optional fields: edit the value, then uncomment the line.'
     printf '%s\n' '  # --rpe 1-10' '  # --pain 0-10' ''

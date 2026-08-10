@@ -10,15 +10,25 @@ user-facing workflow.
 
 ## 1. Run the complete check
 
+Always format through the repository wrapper:
+
+```sh
+bash scripts/format.sh
+```
+
+Never invoke `zig fmt` directly. The wrapper defines the repository file set
+and cache exclusions, and is approved for sandboxed use.
+
 Run exactly:
 
 ```sh
 ./check.sh
 ```
 
-This is the project's canonical formatting, build, unit-test, CLI-test, shell
-syntax, and Polar importer check. Do not run separate `zig fmt`, `zig build`, or
-`zig build test` commands when `./check.sh` covers the task.
+`check.sh` calls the same formatter wrapper, then runs the project's canonical
+build, unit-test, CLI-test, shell syntax, and Polar and Garmin importer checks.
+Do not run separate `zig fmt`, `zig build`, or `zig build test` commands when
+`./check.sh` covers the task.
 
 If the check fails, fix the failure and run `./check.sh` again.
 

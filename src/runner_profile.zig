@@ -21,6 +21,22 @@ pub const RaceDistance = enum {
     half_marathon,
 };
 
+pub const Surface = enum {
+    road,
+    trail,
+};
+
+pub const Technicality = enum {
+    smooth,
+    mixed,
+    technical,
+};
+
+pub const TrainingLoadBasis = enum {
+    distance,
+    duration,
+};
+
 pub const GoalIntent = enum {
     finish_comfortably,
     performance,
@@ -69,6 +85,15 @@ pub const Goal = struct {
     race_distance: Sourced(RaceDistance),
     intent: Sourced(GoalIntent),
     target_time_seconds: ?Sourced(u32) = null,
+    course: ?Course = null,
+};
+
+pub const Course = struct {
+    surface: Sourced(Surface),
+    total_ascent_meters: ?Sourced(u32) = null,
+    total_descent_meters: ?Sourced(u32) = null,
+    technicality: ?Sourced(Technicality) = null,
+    maximum_altitude_meters: ?Sourced(u32) = null,
 };
 
 pub const Availability = struct {
@@ -79,10 +104,17 @@ pub const Availability = struct {
 };
 
 pub const Baseline = struct {
+    training_load_basis: Sourced(TrainingLoadBasis) = .{
+        .value = .distance,
+        .source = .defaulted,
+    },
     average_weekly_distance_km: Sourced(f64),
     longest_run_km: Sourced(f64),
     recent_performances: Sourced([]const RecentPerformance),
     weekly_distance_history_km: ?Sourced([]const f64) = null,
+    average_weekly_ascent_meters: ?Sourced(u32) = null,
+    longest_run_ascent_meters: ?Sourced(u32) = null,
+    longest_run_duration_seconds: ?Sourced(u32) = null,
 };
 
 pub const Constraints = struct {
@@ -138,16 +170,17 @@ pub fn validate(profile: RunnerProfile) !Summary {
     const race_date = date.parse(profile.goal.race_date.value) catch
         return error.InvalidRaceDate;
     const plan_days_signed = date.daysBetween(plan_start, race_date) + 1;
-    if (plan_days_signed < 56 or plan_days_signed > 168) {
+    if (plan_days_signed < 55 or plan_days_signed > 168) {
         return error.UnsupportedPlanLength;
     }
 
     if (profile.goal.target_time_seconds) |target| {
         if (target.value == 0) return error.InvalidTargetTime;
     }
+    try validateCourse(profile);
 
     const running_days = profile.availability.running_days.value;
-    if (running_days.len < 3 or running_days.len > 6) {
+    if (running_days.len < 2 or running_days.len > 6) {
         return error.InvalidRunningDayCount;
     }
     if (hasDuplicateWeekdays(running_days)) return error.DuplicateRunningDay;
@@ -179,6 +212,11 @@ pub fn validate(profile: RunnerProfile) !Summary {
         profile.baseline.longest_run_km.value,
         error.InvalidLongestRun,
     );
+    if (profile.baseline.training_load_basis.value == .duration) {
+        const longest_duration = profile.baseline.longest_run_duration_seconds orelse
+            return error.DurationLoadBaselineRequired;
+        if (longest_duration.value == 0) return error.InvalidLongestRunDuration;
+    }
     if (profile.baseline.weekly_distance_history_km) |history| {
         if (history.value.len == 0) return error.EmptyWeeklyDistanceHistory;
         for (history.value) |distance_km| {
@@ -213,6 +251,28 @@ pub fn validate(profile: RunnerProfile) !Summary {
     };
 }
 
+pub fn surface(profile: RunnerProfile) Surface {
+    const course = profile.goal.course orelse return .road;
+    return course.surface.value;
+}
+
+pub fn trainingLoadBasis(profile: RunnerProfile) TrainingLoadBasis {
+    return profile.baseline.training_load_basis.value;
+}
+
+pub fn trailCourse(profile: RunnerProfile) ?Course {
+    if (surface(profile) != .trail) return null;
+    return profile.goal.course;
+}
+
+fn validateCourse(profile: RunnerProfile) !void {
+    const course = profile.goal.course orelse return;
+    if (course.surface.value == .road) return;
+
+    if (course.total_ascent_meters == null) return error.TrailCourseAscentRequired;
+    if (course.technicality == null) return error.TrailCourseTechnicalityRequired;
+}
+
 pub fn printSummary(
     writer: *Io.Writer,
     profile: RunnerProfile,
@@ -226,8 +286,19 @@ pub fn printSummary(
     if (profile.goal.target_time_seconds) |target| {
         try writer.writeAll(", requested target ");
         try printDuration(writer, target.value);
+    } else if (surface(profile) == .trail) {
+        try writer.writeAll(", effort-based completion target");
     } else {
         try writer.writeAll(", target time to be recommended");
+    }
+    if (trailCourse(profile)) |course| {
+        try writer.print("\nCourse: trail, {d} m ascent", .{course.total_ascent_meters.?.value});
+        if (course.total_descent_meters) |descent| {
+            try writer.print(", {d} m descent", .{descent.value});
+        } else {
+            try writer.writeAll(", descent unknown");
+        }
+        try writer.print(", {s}", .{@tagName(course.technicality.?.value)});
     }
     try writer.print(
         "\nPlan span: {d} days\n" ++

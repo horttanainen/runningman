@@ -7,7 +7,7 @@
     "rule_id": "SCOPE-01",
     "race_distance": "half_marathon",
     "race_distance_km": 21.0975,
-    "minimum_plan_days": 56,
+    "minimum_plan_days": 55,
     "maximum_plan_days": 168,
     "minimum_core_running_days": 3,
     "maximum_core_running_days": 6
@@ -94,6 +94,7 @@
     "maximum_weekly_distance_fraction": 0.22,
     "maximum_session_distance_km": 8,
     "minimum_warmup_cooldown_km": 1,
+    "minimum_taper_warmup_cooldown_km": 0.5,
     "maximum_warmup_cooldown_km": 2,
     "foundation_repetition_distance_km": 1,
     "foundation_initial_work_fraction": 0.1,
@@ -130,6 +131,36 @@
     "rule_id": "MISSED-01",
     "stack_later_in_week": false,
     "preserve_hard_session_spacing": true
+  },
+  "duration_progression": {
+    "minimum_core_running_days": 2,
+    "initial_regular_run_seconds": 1500,
+    "maximum_regular_run_seconds": 3000,
+    "regular_run_weekly_increase_seconds": 300,
+    "default_initial_long_run_seconds": 4500,
+    "maximum_initial_long_run_seconds": 4800,
+    "maximum_long_run_seconds": 9000,
+    "long_run_weekly_increase_seconds": 900,
+    "recovery_duration_fraction": 0.75,
+    "first_taper_duration_fraction": 0.75,
+    "final_taper_duration_fraction": 0.5,
+    "race_week_short_run_seconds": 1200
+  },
+  "trail_specific": {
+    "rule_id": "TRAIL-01",
+    "maximum_supported_ascent_meters": 1500,
+    "maximum_weekly_ascent_increase_fraction": 0.15,
+    "maximum_peak_ascent_relative_to_baseline": 2.0,
+    "maximum_peak_ascent_relative_to_race": 1.2,
+    "maximum_long_run_race_ascent_fraction": 0.9,
+    "maximum_long_run_weekly_ascent_fraction": 0.65,
+    "recovery_ascent_fraction": 0.7,
+    "quality_ascent_fraction": 0.2,
+    "demanding_descent_taper_days": 14,
+    "minimum_trail_sessions_per_week": 1,
+    "effort_only_pacing": true,
+    "unknown_ascent_initial_race_fraction": 0.3,
+    "unknown_ascent_peak_race_fraction": 0.8
   },
   "workout_categories": [
     {
@@ -286,15 +317,57 @@
       ],
       "description": "The 21.0975 km goal event.",
       "rule_id": "SCOPE-01"
+    },
+    {
+      "recipe_id": "trail-hill-repeats",
+      "category_id": "quality",
+      "phase_ids": ["foundation", "build", "recovery"],
+      "description": "Effort-based uphill repetitions with controlled downhill recovery.",
+      "rule_id": "TRAIL-01"
+    },
+    {
+      "recipe_id": "trail-specific-effort",
+      "category_id": "quality",
+      "phase_ids": ["race_specific", "taper", "race"],
+      "description": "Effort-based climbing or rolling trail work without a flat-road pace target.",
+      "rule_id": "TRAIL-01"
+    },
+    {
+      "recipe_id": "trail-half-marathon-race",
+      "category_id": "race",
+      "phase_ids": ["race"],
+      "description": "The trail half marathon using course-aware effort and power-hiking guidance.",
+      "rule_id": "TRAIL-01"
+    },
+    {
+      "recipe_id": "easy-duration",
+      "category_id": "easy",
+      "phase_ids": ["foundation", "build", "recovery", "race_specific", "taper", "race"],
+      "description": "A time-based conversational aerobic run.",
+      "rule_id": "RECIPE-01"
+    },
+    {
+      "recipe_id": "quality-duration",
+      "category_id": "quality",
+      "phase_ids": ["foundation", "build", "recovery", "race_specific", "taper", "race"],
+      "description": "A time-based quality session with explicit easy support and controlled work.",
+      "rule_id": "RECIPE-01"
+    },
+    {
+      "recipe_id": "long-duration",
+      "category_id": "long",
+      "phase_ids": ["foundation", "build", "recovery", "race_specific", "taper"],
+      "description": "A time-based mostly conversational long run or hike.",
+      "rule_id": "LONG-01"
     }
   ],
   "rules": [
     {
       "rule_id": "SCOPE-01",
       "category": "scope",
-      "summary": "Support one half marathon over 56-168 days with 3-6 core running days.",
+      "summary": "Support one half marathon over 55-168 days with 3-6 distance-based or 2-6 duration-based core running days.",
       "evidence_ids": [],
-      "product_assumption": "This is the deliberately narrow product scope approved for Phase 1, not a physiological boundary."
+      "product_assumption": "This is a deliberately bounded product scope; load basis, running frequency, and terrain are independent planning dimensions rather than physiological boundaries."
     },
     {
       "rule_id": "PER-01",
@@ -398,6 +471,17 @@
         "E-TID-001"
       ],
       "product_assumption": "Exact work-distance increments, repetition formats, and recovery durations are transparent deterministic construction choices; the cited evidence does not establish one universal prescription."
+    },
+    {
+      "rule_id": "TRAIL-01",
+      "category": "trail_specificity",
+      "summary": "Progress climbing, controlled descending, and race-like terrain while prescribing trail work by effort.",
+      "evidence_ids": [
+        "E-TRAIL-PERF-001",
+        "E-DOWNHILL-001",
+        "E-TRAIL-INJURY-001"
+      ],
+      "product_assumption": "Exact ascent fractions, progression limits, technicality labels, and the 1500-metre supported-course boundary are deterministic product choices rather than universal physiological thresholds."
     }
   ]
 }

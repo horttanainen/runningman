@@ -119,6 +119,10 @@
         },
         "target_core_distance_km": { "type": "number", "minimum": 0 },
         "long_run_distance_km": { "type": "number", "minimum": 0 },
+        "target_core_duration_seconds": { "type": "integer", "minimum": 1 },
+        "long_run_duration_seconds": { "type": "integer", "minimum": 1 },
+        "target_ascent_meters": { "type": "integer", "minimum": 0 },
+        "long_run_ascent_meters": { "type": "integer", "minimum": 0 },
         "decision": { "$ref": "#/$defs/week_decision" }
       }
     },
@@ -160,7 +164,16 @@
         "long_run_weekly_share_limit_km": { "type": "number", "minimum": 0 },
         "long_run_progression_limit_km": { "type": "number", "minimum": 0 },
         "phase_week": { "type": "integer", "minimum": 1, "maximum": 24 },
-        "phase_week_count": { "type": "integer", "minimum": 1, "maximum": 24 }
+        "phase_week_count": { "type": "integer", "minimum": 1, "maximum": 24 },
+        "target_core_duration_seconds": { "type": "integer", "minimum": 1 },
+        "previous_long_run_duration_seconds": { "type": "integer", "minimum": 1 },
+        "long_run_progression_limit_seconds": { "type": "integer", "minimum": 1 },
+        "target_ascent_meters": { "type": "integer", "minimum": 0 },
+        "previous_ascent_meters": { "type": "integer", "minimum": 0 },
+        "ascent_progression_limit_meters": { "type": "integer", "minimum": 0 },
+        "long_run_ascent_meters": { "type": "integer", "minimum": 0 },
+        "trail_rule_id": { "$ref": "#/$defs/non_empty_string" },
+        "load_basis": { "enum": ["distance", "duration"] }
       }
     },
     "workout": {
@@ -177,6 +190,9 @@
         "details": { "$ref": "#/$defs/non_empty_string" },
         "distance_min_km": { "type": "number", "minimum": 0 },
         "distance_max_km": { "type": "number", "minimum": 0 },
+        "terrain": { "enum": ["road", "trail"] },
+        "ascent_meters": { "type": "integer", "minimum": 0 },
+        "descent_meters": { "type": "integer", "minimum": 0 },
         "segments": {
           "type": "array",
           "minItems": 1,
@@ -210,18 +226,24 @@
           "enum": ["rest", "easy", "optional_recovery", "quality", "long_run", "race"]
         },
         "distance_method": {
-          "enum": ["none", "weekly_remainder", "optional_weekly_fraction", "quality_progression", "weekly_long_run", "race_distance"]
+          "enum": ["none", "weekly_remainder", "optional_weekly_fraction", "quality_progression", "weekly_long_run", "race_distance", "duration_progression"]
         },
         "pace_method": {
           "enum": ["none", "effort_only", "easy_anchor_offset", "quality_anchor_offset", "race_anchor"]
         },
         "week_target_core_distance_km": { "type": "number", "minimum": 0 },
         "allocated_distance_km": { "type": "number", "minimum": 0 },
+        "week_target_core_duration_seconds": { "type": "integer", "minimum": 1 },
+        "allocated_duration_seconds": { "type": "integer", "minimum": 1 },
         "training_pace_anchor_seconds": { "type": "integer", "minimum": 1 },
         "scheduled_weekday": { "$ref": "#/$defs/weekday" },
         "preferred_weekday": { "$ref": "#/$defs/weekday" },
         "preference_honored": { "type": "boolean" },
-        "quality_progression": { "$ref": "#/$defs/quality_progression" }
+        "quality_progression": { "$ref": "#/$defs/quality_progression" },
+        "planned_ascent_meters": { "type": "integer", "minimum": 0 },
+        "planned_descent_meters": { "type": "integer", "minimum": 0 },
+        "terrain": { "enum": ["road", "trail"] },
+        "load_basis": { "enum": ["distance", "duration"] }
       }
     },
     "quality_progression": {
@@ -249,11 +271,13 @@
         },
         "phase_week": { "type": "integer", "minimum": 1, "maximum": 24 },
         "phase_week_count": { "type": "integer", "minimum": 1, "maximum": 24 },
-        "work_distance_km": { "type": "number", "exclusiveMinimum": 0 },
+        "work_distance_km": { "type": "number", "minimum": 0 },
         "previous_work_distance_km": { "type": "number", "exclusiveMinimum": 0 },
         "repetition_distance_km": { "type": "number", "exclusiveMinimum": 0 },
         "repetitions": { "type": "integer", "minimum": 1, "maximum": 255 },
-        "recovery_seconds": { "type": "integer", "minimum": 1 }
+        "recovery_seconds": { "type": "integer", "minimum": 1 },
+        "work_duration_seconds": { "type": "integer", "minimum": 1 },
+        "previous_work_duration_seconds": { "type": "integer", "minimum": 1 }
       }
     },
     "segment": {

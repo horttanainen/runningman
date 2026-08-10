@@ -27,7 +27,7 @@ test ! -e "$data_file"
 
 "$binary" policy validate policies/half-marathon.json > "$temporary_directory/policy.txt"
 grep -q "Training policy is valid: half-marathon version 2" "$temporary_directory/policy.txt"
-grep -q "Rules: 13; phases: 6; workout recipes: 11" "$temporary_directory/policy.txt"
+grep -q "Rules: 14; phases: 6; workout recipes: 17" "$temporary_directory/policy.txt"
 test ! -e "$data_file"
 unsupported_policy="$temporary_directory/unsupported-policy.json"
 sed 's/"policy_version": 2/"policy_version": 3/' \
@@ -341,6 +341,154 @@ done
 test "$(sed -n '/"workouts": \[/,$p' "$temporary_directory/runner-profile-8-week-3-day-plan.json" | grep -c '"date"')" = 56
 test "$(sed -n '/"workouts": \[/,$p' "$temporary_directory/runner-profile-24-week-6-day-plan.json" | grep -c '"date"')" = 168
 
+trail_data_file="$temporary_directory/trail-data.jsonl"
+trail_plan="$temporary_directory/trail-plan.json"
+trail_markdown="$temporary_directory/trail-plan.md"
+"$binary" profile validate examples/runner-profile-trail.json \
+    > "$temporary_directory/trail-profile.txt"
+grep -q "Runner profile is valid: example-trail-half-marathon-runner" \
+    "$temporary_directory/trail-profile.txt"
+grep -q "Course: trail, 850 m ascent, 850 m descent, mixed" \
+    "$temporary_directory/trail-profile.txt"
+grep -q "effort-based completion target" "$temporary_directory/trail-profile.txt"
+incomplete_trail_profile="$temporary_directory/incomplete-trail-profile.json"
+jq 'del(.goal.course.total_ascent_meters)' examples/runner-profile-trail.json \
+    > "$incomplete_trail_profile"
+if "$binary" profile validate "$incomplete_trail_profile" \
+    > /dev/null 2> "$temporary_directory/incomplete-trail-profile-error.txt"
+then
+    echo "expected a trail profile without race ascent to be rejected" >&2
+    exit 1
+fi
+grep -q 'a trail goal requires `goal.course.total_ascent_meters`' \
+    "$temporary_directory/incomplete-trail-profile-error.txt"
+"$binary" plan assess examples/runner-profile-trail.json \
+    > "$temporary_directory/trail-assessment.txt"
+grep -q "Current flat-running half-marathon equivalent: 1:57:49" \
+    "$temporary_directory/trail-assessment.txt"
+grep -q "Planner recommendation: effort-based completion goal" \
+    "$temporary_directory/trail-assessment.txt"
+grep -q "Pace guidance: effort-only on trail" "$temporary_directory/trail-assessment.txt"
+"$binary" --data "$trail_data_file" init 2026-07-20 >/dev/null
+"$binary" --data "$trail_data_file" plan generate examples/runner-profile-trail.json \
+    --output "$trail_plan" >/dev/null
+"$binary" --data "$trail_data_file" plan preview "$trail_plan" \
+    > "$temporary_directory/trail-preview.txt"
+grep -q "Validation passed" "$temporary_directory/trail-preview.txt"
+grep -q "recipe trail-hill-repeats" "$temporary_directory/trail-preview.txt"
+grep -q "pace effort_only" "$temporary_directory/trail-preview.txt"
+grep -q "Terrain: trail; approximately" "$temporary_directory/trail-preview.txt"
+test "$(jq -r '.weeks[0].target_ascent_meters' "$trail_plan")" = "483"
+test "$(jq -r '.weeks[12].target_ascent_meters' "$trail_plan")" = "850"
+test "$(jq -r '[.workouts[] | select(.kind == "race")][0].descent_meters' "$trail_plan")" = "850"
+jq -e 'all(.workouts[]; if (.kind != "rest" and .kind != "optional-recovery") then (.decision.pace_method == "effort_only" and .terrain == "trail") else true end)' \
+    "$trail_plan" >/dev/null
+"$binary" --data "$trail_data_file" plan markdown "$trail_plan" \
+    --output "$trail_markdown" >/dev/null
+grep -q "| Ascent | Long-run ascent |" "$trail_markdown"
+grep -q "| 1 .*| 483 m | 314 m |" "$trail_markdown"
+grep -q "Sustained uphill effort with controlled descending" "$trail_markdown"
+"$binary" --data "$trail_data_file" plan explain "$trail_plan" \
+    > "$temporary_directory/trail-explanation.txt"
+grep -q "Vertical target: 483 m ascent; long run 314 m" \
+    "$temporary_directory/trail-explanation.txt"
+tampered_trail_plan="$temporary_directory/tampered-trail-plan.json"
+jq '.weeks[0].target_ascent_meters = 484' "$trail_plan" > "$tampered_trail_plan"
+if "$binary" --data "$trail_data_file" plan preview "$tampered_trail_plan" \
+    > /dev/null 2> "$temporary_directory/tampered-trail-error.txt"
+then
+    echo "expected a trail plan with inconsistent vertical targets to be rejected" >&2
+    exit 1
+fi
+grep -q "trail vertical targets do not match" \
+    "$temporary_directory/tampered-trail-error.txt"
+
+two_run_trail_data="$temporary_directory/two-run-trail-data.jsonl"
+two_run_trail_plan="$temporary_directory/two-run-trail-plan.json"
+two_run_trail_markdown="$temporary_directory/two-run-trail-plan.md"
+"$binary" profile validate examples/runner-profile-trail-two-runs.json \
+    > "$temporary_directory/two-run-trail-profile.txt"
+grep -q "Runner profile is valid: technical-trail-half-2026-10-03" \
+    "$temporary_directory/two-run-trail-profile.txt"
+grep -q "Course: trail, 800 m ascent, descent unknown, technical" \
+    "$temporary_directory/two-run-trail-profile.txt"
+grep -q "Plan span: 55 days" "$temporary_directory/two-run-trail-profile.txt"
+grep -q "Availability: 2 core running days per week" \
+    "$temporary_directory/two-run-trail-profile.txt"
+"$binary" plan assess examples/runner-profile-trail-two-runs.json \
+    > "$temporary_directory/two-run-trail-assessment.txt"
+grep -q "Classification: aspirational" "$temporary_directory/two-run-trail-assessment.txt"
+grep -q "Pace guidance: effort-only on trail" \
+    "$temporary_directory/two-run-trail-assessment.txt"
+"$binary" --data "$two_run_trail_data" init 2026-08-10 >/dev/null
+"$binary" --data "$two_run_trail_data" plan generate \
+    examples/runner-profile-trail-two-runs.json --output "$two_run_trail_plan" >/dev/null
+"$binary" --data "$two_run_trail_data" plan preview "$two_run_trail_plan" \
+    > "$temporary_directory/two-run-trail-preview.txt"
+grep -q "Validation passed" "$temporary_directory/two-run-trail-preview.txt"
+grep -q "recipe quality-duration" \
+    "$temporary_directory/two-run-trail-preview.txt"
+grep -q "recipe long-duration" "$temporary_directory/two-run-trail-preview.txt"
+test "$(jq -r '.workouts | length' "$two_run_trail_plan")" = "55"
+test "$(jq -r '.weeks | length' "$two_run_trail_plan")" = "8"
+test "$(jq -r '.weeks[0].target_core_duration_seconds' "$two_run_trail_plan")" = "6300"
+test "$(jq -r '.weeks[0].long_run_duration_seconds' "$two_run_trail_plan")" = "4800"
+test "$(jq -r '.weeks[0].target_ascent_meters' "$two_run_trail_plan")" = "240"
+test "$(jq -r '.weeks[4].long_run_duration_seconds' "$two_run_trail_plan")" = "8400"
+test "$(jq -r '.weeks[4].target_ascent_meters' "$two_run_trail_plan")" = "420"
+test "$(jq -r '.weeks[7].target_ascent_meters' "$two_run_trail_plan")" = "800"
+jq -e '[range(0; 8) as $week | [.workouts[($week * 7):((($week + 1) * 7) | if . > 55 then 55 else . end)][] | select(.kind != "rest")] | length] == [2,2,2,2,2,2,2,2]' \
+    "$two_run_trail_plan" >/dev/null
+jq -e 'all(.workouts[]; if (.kind != "rest" and .kind != "race") then (.segments[0].duration_seconds > 0 and .decision.pace_method == "effort_only" and .distance_min_km == null) else true end)' \
+    "$two_run_trail_plan" >/dev/null
+jq -e 'all(.workouts[] | select(.kind == "quality"); .decision.allocation_role == "quality" and .decision.load_basis == "duration" and .decision.quality_progression.work_duration_seconds > 0)' \
+    "$two_run_trail_plan" >/dev/null
+jq -e '.workouts[] | select(.phase == "race" and .kind == "quality") |
+    .ascent_meters == 0 and
+    .segments[1].label == "Short relaxed trail sharpening on flat or gently rolling terrain" and
+    (.segments[1].notes | contains("finish fresh")) and
+    (.details | contains("Choose flat or gently rolling trail")) and
+    (.details | contains("power hike") | not)' \
+    "$two_run_trail_plan" >/dev/null
+jq -e 'all(.workouts[]; .descent_meters == null)' "$two_run_trail_plan" >/dev/null
+"$binary" --data "$two_run_trail_data" plan markdown "$two_run_trail_plan" \
+    --output "$two_run_trail_markdown" >/dev/null
+grep -q "| 1 .*| 105 min | 80 min | 240 m | 156 m |" \
+    "$two_run_trail_markdown"
+grep -q "Time-based trail quality: 25 minutes" "$two_run_trail_markdown"
+grep -q "Short relaxed trail sharpening on flat or gently rolling terrain" \
+    "$two_run_trail_markdown"
+grep -q "Short relaxed trail sharpening on flat or gently rolling terrain: 4:00 at relaxed RPE 4–5" \
+    "$two_run_trail_markdown"
+grep -q "Long trail run/hike: 80 minutes" "$two_run_trail_markdown"
+grep -q "Aspirational trail half-marathon target: 3:00:00" \
+    "$two_run_trail_markdown"
+
+three_run_duration_profile="$temporary_directory/three-run-duration-profile.json"
+three_run_duration_plan="$temporary_directory/three-run-duration-plan.json"
+jq '.profile_id = "three-run-duration-trail" | .availability.running_days.value = ["tuesday", "thursday", "sunday"]' \
+    examples/runner-profile-trail-two-runs.json > "$three_run_duration_profile"
+"$binary" --data "$two_run_trail_data" plan generate "$three_run_duration_profile" \
+    --output "$three_run_duration_plan" >/dev/null
+jq -e '.weeks[0].target_core_duration_seconds == 7800' \
+    "$three_run_duration_plan" >/dev/null
+jq -e '[.workouts[0:7][] | select(.kind != "rest") | .kind] == ["easy", "quality", "long"]' \
+    "$three_run_duration_plan" >/dev/null
+jq -e 'all(.workouts[] | select(.kind != "rest"); .decision.load_basis == "duration")' \
+    "$three_run_duration_plan" >/dev/null
+
+road_duration_profile="$temporary_directory/road-duration-profile.json"
+road_duration_plan="$temporary_directory/road-duration-plan.json"
+jq 'del(.goal.course) | .profile_id = "two-run-duration-road"' \
+    examples/runner-profile-trail-two-runs.json > "$road_duration_profile"
+"$binary" --data "$two_run_trail_data" plan generate "$road_duration_profile" \
+    --output "$road_duration_plan" >/dev/null
+jq -e 'all(.workouts[] | select(.kind != "rest"); .terrain == "road" and .decision.load_basis == "duration" and .decision.pace_method == "effort_only")' \
+    "$road_duration_plan" >/dev/null
+jq -e '.workouts[] | select(.phase == "race" and .kind == "quality") |
+    .segments[1].label == "Relaxed strides on flat or gently rolling terrain"' \
+    "$road_duration_plan" >/dev/null
+
 "$binary" --data "$data_file" 2026-07-20 > "$temporary_directory/today.txt"
 grep -q "Core easy aerobic run" "$temporary_directory/today.txt"
 grep -q "6.0 km at 6:15–7:00/km, 8.6–9.6 km/h (37:30–42:00)" \
@@ -353,9 +501,10 @@ if grep -q "Expected total time: 37:30–42:00" "$temporary_directory/today.txt"
     exit 1
 fi
 
-printf '\ncompleted\n8.2\n52:00\n139\n3\n0\nComfortable\n' |
+printf '\ncompleted\n8.2\n52:00\n139\n120\n115\n3\n0\nComfortable\n' |
     "$binary" --data "$data_file" log 2026-07-22 > "$temporary_directory/interactive.txt"
 grep -q "Recorded completed" "$temporary_directory/interactive.txt"
+tail -n 1 "$data_file" | grep -q '"ascent_meters":120,"descent_meters":115'
 
 "$binary" --data "$data_file" schedule --weeks 4 --from 2026-07-20 > "$temporary_directory/schedule.txt"
 grep -q "Week 4" "$temporary_directory/schedule.txt"

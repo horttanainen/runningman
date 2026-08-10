@@ -503,6 +503,8 @@ pub fn printActivity(writer: *Io.Writer, activity: model.Activity) !void {
     if (activity.distance_km) |value| try writer.print(", {d:.2} km", .{value});
     if (activity.duration_seconds) |value| try printDuration(writer, value);
     if (activity.average_heart_rate) |value| try writer.print(", avg HR {d}", .{value});
+    if (activity.ascent_meters) |value| try writer.print(", ascent {d} m", .{value});
+    if (activity.descent_meters) |value| try writer.print(", descent {d} m", .{value});
     if (activity.rpe) |value| try writer.print(", RPE {d}/10", .{value});
     if (activity.feeling) |value| try writer.print(", feel {d}/5", .{value});
     if (activity.pain) |value| try writer.print(", pain {d}/10", .{value});

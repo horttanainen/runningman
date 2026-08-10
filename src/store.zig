@@ -183,6 +183,9 @@ fn applyEvent(storage: *Store, allocator: std.mem.Allocator, event: model.Event)
                 .distance_max_km = event.distance_max_km,
                 .details = event.details orelse return error.InvalidDataFile,
                 .segments = event.segments orelse &.{},
+                .terrain = event.terrain,
+                .ascent_meters = event.ascent_meters,
+                .descent_meters = event.descent_meters,
                 .decision = event.decision,
                 .recorded_at = event.recorded_at,
             };
@@ -207,6 +210,8 @@ fn applyEvent(storage: *Store, allocator: std.mem.Allocator, event: model.Event)
                 .distance_km = event.distance_km,
                 .duration_seconds = event.duration_seconds,
                 .average_heart_rate = event.average_heart_rate,
+                .ascent_meters = event.ascent_meters,
+                .descent_meters = event.descent_meters,
                 .rpe = event.rpe,
                 .feeling = event.feeling,
                 .pain = event.pain,

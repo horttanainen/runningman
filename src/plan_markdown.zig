@@ -159,22 +159,48 @@ fn printOverview(
     weeks: []const plan_revision.ProposedWeek,
     effective_from: date.Date,
 ) !void {
-    try writer.writeAll(
-        "## Plan at a glance\n\n" ++
+    const has_vertical = containsVerticalTargets(weeks);
+    try writer.writeAll("## Plan at a glance\n\n");
+    if (has_vertical) {
+        try writer.writeAll(
+            "| Week | Dates | Phase | Core running | Long run | Ascent | Long-run ascent |\n" ++
+                "|---:|---|---|---:|---:|---:|---:|\n",
+        );
+    } else {
+        try writer.writeAll(
             "| Week | Dates | Phase | Core running | Long run |\n" ++
-            "|---:|---|---|---:|---:|\n",
-    );
+                "|---:|---|---|---:|---:|\n",
+        );
+    }
     for (weeks) |week| {
         const week_end = try date.parse(week.end_date);
         if (date.compare(week_end, effective_from) == .lt) continue;
 
         try writer.print("| {d} | {s}–{s} | ", .{ week.week, week.start_date, week.end_date });
         try printLabel(writer, week.phase);
-        try writer.print(" | {d:.1} km | ", .{week.target_core_distance_km});
-        if (week.long_run_distance_km > 0) {
+        if (week.target_core_duration_seconds) |duration_seconds| {
+            try writer.print(" | {d} min | ", .{duration_seconds / 60});
+        } else {
+            try writer.print(" | {d:.1} km | ", .{week.target_core_distance_km});
+        }
+        if (week.long_run_duration_seconds) |duration_seconds| {
+            try writer.print("{d} min", .{duration_seconds / 60});
+        } else if (week.long_run_distance_km > 0) {
             try writer.print("{d:.1} km", .{week.long_run_distance_km});
         } else {
             try writer.writeAll("—");
+        }
+        if (has_vertical) {
+            if (week.target_ascent_meters) |ascent| {
+                try writer.print(" | {d} m", .{ascent});
+            } else {
+                try writer.writeAll(" | —");
+            }
+            if (week.long_run_ascent_meters) |ascent| {
+                try writer.print(" | {d} m", .{ascent});
+            } else {
+                try writer.writeAll(" | —");
+            }
         }
         try writer.writeAll(" |\n");
     }
@@ -192,11 +218,30 @@ fn printWeekHeading(
 
     const purpose = try phasePurpose(phases, week.phase);
     try writer.print("**Focus:** {s}\n\n", .{purpose});
-    try writer.print("Planned core running: **{d:.1} km**", .{week.target_core_distance_km});
-    if (week.long_run_distance_km > 0) {
+    if (week.target_core_duration_seconds) |duration_seconds| {
+        try writer.print("Planned core running: **{d} minutes**", .{duration_seconds / 60});
+    } else {
+        try writer.print("Planned core running: **{d:.1} km**", .{week.target_core_distance_km});
+    }
+    if (week.long_run_duration_seconds) |duration_seconds| {
+        try writer.print("; long run: **{d} minutes**", .{duration_seconds / 60});
+    } else if (week.long_run_distance_km > 0) {
         try writer.print("; long run: **{d:.1} km**", .{week.long_run_distance_km});
     }
+    if (week.target_ascent_meters) |ascent| {
+        try writer.print("; ascent: **{d} m**", .{ascent});
+    }
+    if (week.long_run_ascent_meters) |ascent| {
+        try writer.print("; long-run ascent: **{d} m**", .{ascent});
+    }
     try writer.writeAll(".\n\n");
+}
+
+fn containsVerticalTargets(weeks: []const plan_revision.ProposedWeek) bool {
+    for (weeks) |week| {
+        if (week.target_ascent_meters != null) return true;
+    }
+    return false;
 }
 
 fn proposedWorkout(
@@ -217,6 +262,9 @@ fn proposedWorkout(
         .distance_max_km = proposed.distance_max_km,
         .details = proposed.details,
         .segments = proposed.segments,
+        .terrain = proposed.terrain,
+        .ascent_meters = proposed.ascent_meters,
+        .descent_meters = proposed.descent_meters,
         .decision = proposed.decision,
         .recorded_at = 0,
     };

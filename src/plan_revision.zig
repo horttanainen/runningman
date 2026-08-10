@@ -2,6 +2,7 @@ const std = @import("std");
 const date = @import("date.zig");
 const model = @import("model.zig");
 const plan_provenance = @import("plan_provenance.zig");
+const runner_profile = @import("runner_profile.zig");
 const store = @import("store.zig");
 const workout = @import("workout.zig");
 
@@ -36,6 +37,9 @@ pub const ProposedWorkout = struct {
     details: []const u8,
     distance_min_km: ?f64 = null,
     distance_max_km: ?f64 = null,
+    terrain: ?runner_profile.Surface = null,
+    ascent_meters: ?u32 = null,
+    descent_meters: ?u32 = null,
     segments: []const model.Segment,
     decision: ?plan_provenance.WorkoutDecision = null,
 };
@@ -191,6 +195,9 @@ pub fn createEvents(
             .distance_max_km = range.maximum_km,
             .details = proposed.details,
             .segments = proposed.segments,
+            .terrain = proposed.terrain,
+            .ascent_meters = proposed.ascent_meters,
+            .descent_meters = proposed.descent_meters,
             .decision = proposed.decision,
             .recorded_at = recorded_at,
         };
@@ -272,16 +279,19 @@ pub fn printPreview(
 
     try writer.writeAll("Macrocycle\n");
     for (revision.weeks) |week| {
-        try writer.print(
-            "  Week {d} ({s}–{s}): {s}, {d:.1} km core",
-            .{
-                week.week,
-                week.start_date,
-                week.end_date,
-                week.phase,
-                week.target_core_distance_km,
-            },
-        );
+        try writer.print("  Week {d} ({s}–{s}): {s}", .{
+            week.week,
+            week.start_date,
+            week.end_date,
+            week.phase,
+        });
+        if (week.target_core_duration_seconds) |duration_seconds| {
+            try writer.writeAll(", ");
+            try printDuration(writer, duration_seconds);
+            try writer.writeAll(" planned running");
+        } else {
+            try writer.print(", {d:.1} km core", .{week.target_core_distance_km});
+        }
         if (week.long_run_distance_km > 0) {
             try writer.print(", {d:.1} km long run", .{week.long_run_distance_km});
         }
@@ -345,6 +355,9 @@ pub fn printPreview(
             .distance_max_km = proposed.distance_max_km,
             .details = proposed.details,
             .segments = proposed.segments,
+            .terrain = proposed.terrain,
+            .ascent_meters = proposed.ascent_meters,
+            .descent_meters = proposed.descent_meters,
             .recorded_at = 0,
         };
         try workout.printDetails(writer, preview_workout, "    ");
@@ -385,7 +398,7 @@ pub fn printPreview(
     try writer.writeAll("\nNo data was changed. Use `runningman plan apply FILE` after reviewing this preview.\n");
 }
 
-fn validateWorkout(proposed: ProposedWorkout) !void {
+pub fn validateWorkout(proposed: ProposedWorkout) !void {
     if (proposed.phase.len == 0 or proposed.kind.len == 0 or
         proposed.intensity.len == 0 or proposed.details.len == 0)
     {
@@ -469,6 +482,9 @@ fn samePrescription(current: model.Workout, proposed: ProposedWorkout) bool {
         !std.mem.eql(u8, current.details, proposed.details) or
         current.distance_min_km != range.minimum_km or
         current.distance_max_km != range.maximum_km or
+        current.terrain != proposed.terrain or
+        current.ascent_meters != proposed.ascent_meters or
+        current.descent_meters != proposed.descent_meters or
         current.segments.len != proposed.segments.len)
     {
         return false;
@@ -505,10 +521,16 @@ fn sameWorkoutDecision(
         left_value.pace_method != right_value.pace_method or
         left_value.week_target_core_distance_km != right_value.week_target_core_distance_km or
         left_value.allocated_distance_km != right_value.allocated_distance_km or
+        left_value.week_target_core_duration_seconds != right_value.week_target_core_duration_seconds or
+        left_value.allocated_duration_seconds != right_value.allocated_duration_seconds or
         left_value.training_pace_anchor_seconds != right_value.training_pace_anchor_seconds or
         left_value.scheduled_weekday != right_value.scheduled_weekday or
         left_value.preferred_weekday != right_value.preferred_weekday or
         left_value.preference_honored != right_value.preference_honored or
+        left_value.planned_ascent_meters != right_value.planned_ascent_meters or
+        left_value.planned_descent_meters != right_value.planned_descent_meters or
+        left_value.terrain != right_value.terrain or
+        left_value.load_basis != right_value.load_basis or
         !sameQualityProgression(
             left_value.quality_progression,
             right_value.quality_progression,
@@ -537,7 +559,9 @@ fn sameQualityProgression(
         left_value.previous_work_distance_km == right_value.previous_work_distance_km and
         left_value.repetition_distance_km == right_value.repetition_distance_km and
         left_value.repetitions == right_value.repetitions and
-        left_value.recovery_seconds == right_value.recovery_seconds;
+        left_value.recovery_seconds == right_value.recovery_seconds and
+        left_value.work_duration_seconds == right_value.work_duration_seconds and
+        left_value.previous_work_duration_seconds == right_value.previous_work_duration_seconds;
 }
 
 fn valueOrFallback(value: []const u8, fallback: []const u8) []const u8 {

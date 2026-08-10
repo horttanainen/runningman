@@ -44,6 +44,9 @@
         },
         "target_time_seconds": {
           "$ref": "#/$defs/sourced_positive_integer"
+        },
+        "course": {
+          "$ref": "#/$defs/course"
         }
       }
     },
@@ -78,6 +81,9 @@
         "recent_performances"
       ],
       "properties": {
+        "training_load_basis": {
+          "$ref": "#/$defs/sourced_training_load_basis"
+        },
         "average_weekly_distance_km": {
           "$ref": "#/$defs/sourced_non_negative_number"
         },
@@ -89,6 +95,15 @@
         },
         "weekly_distance_history_km": {
           "$ref": "#/$defs/sourced_distance_history"
+        },
+        "average_weekly_ascent_meters": {
+          "$ref": "#/$defs/sourced_non_negative_integer"
+        },
+        "longest_run_ascent_meters": {
+          "$ref": "#/$defs/sourced_non_negative_integer"
+        },
+        "longest_run_duration_seconds": {
+          "$ref": "#/$defs/sourced_positive_integer"
         }
       }
     },
@@ -120,6 +135,64 @@
         "derived",
         "defaulted"
       ]
+    },
+    "course": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface"],
+      "properties": {
+        "surface": { "$ref": "#/$defs/sourced_surface" },
+        "total_ascent_meters": { "$ref": "#/$defs/sourced_non_negative_integer" },
+        "total_descent_meters": { "$ref": "#/$defs/sourced_non_negative_integer" },
+        "technicality": { "$ref": "#/$defs/sourced_technicality" },
+        "maximum_altitude_meters": { "$ref": "#/$defs/sourced_non_negative_integer" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "surface": {
+                "properties": {
+                  "value": { "const": "trail" }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "total_ascent_meters",
+              "technicality"
+            ]
+          }
+        }
+      ]
+    },
+    "sourced_surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "source"],
+      "properties": {
+        "value": { "enum": ["road", "trail"] },
+        "source": { "$ref": "#/$defs/source" }
+      }
+    },
+    "sourced_technicality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "source"],
+      "properties": {
+        "value": { "enum": ["smooth", "mixed", "technical"] },
+        "source": { "$ref": "#/$defs/source" }
+      }
+    },
+    "sourced_training_load_basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "source"],
+      "properties": {
+        "value": { "enum": ["distance", "duration"] },
+        "source": { "$ref": "#/$defs/source" }
+      }
     },
     "date": {
       "type": "string",
@@ -215,7 +288,7 @@
       "properties": {
         "value": {
           "type": "array",
-          "minItems": 3,
+          "minItems": 2,
           "maxItems": 6,
           "uniqueItems": true,
           "items": {

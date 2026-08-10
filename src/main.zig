@@ -801,6 +801,10 @@ fn parseLogCommand(args: []const []const u8) !LogCommand {
             result.input.duration_seconds = try activity.parseDuration(value);
         } else if (std.mem.eql(u8, flag, "--avg-hr")) {
             result.input.average_heart_rate = try std.fmt.parseInt(u16, value, 10);
+        } else if (std.mem.eql(u8, flag, "--ascent-m")) {
+            result.input.ascent_meters = try std.fmt.parseInt(u32, value, 10);
+        } else if (std.mem.eql(u8, flag, "--descent-m")) {
+            result.input.descent_meters = try std.fmt.parseInt(u32, value, 10);
         } else if (std.mem.eql(u8, flag, "--rpe")) {
             result.input.rpe = try std.fmt.parseInt(u8, value, 10);
         } else if (std.mem.eql(u8, flag, "--pain")) {
@@ -839,6 +843,12 @@ fn promptForActivity(
 
     const heart_rate_text = try prompt(allocator, reader, writer, "Average heart rate (blank if unknown): ");
     if (heart_rate_text.len != 0) result.average_heart_rate = try std.fmt.parseInt(u16, heart_rate_text, 10);
+
+    const ascent_text = try prompt(allocator, reader, writer, "Ascent in metres (blank if unknown): ");
+    if (ascent_text.len != 0) result.ascent_meters = try std.fmt.parseInt(u32, ascent_text, 10);
+
+    const descent_text = try prompt(allocator, reader, writer, "Descent in metres (blank if unknown): ");
+    if (descent_text.len != 0) result.descent_meters = try std.fmt.parseInt(u32, descent_text, 10);
 
     const rpe_text = try prompt(allocator, reader, writer, "RPE 1–10 (blank if unknown): ");
     if (rpe_text.len != 0) result.rpe = try std.fmt.parseInt(u8, rpe_text, 10);
@@ -1025,6 +1035,7 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  --outcome completed|modified|skipped|rested
         \\  --modified | --skipped | --rested
         \\  --distance KM  --duration MINUTES|MM:SS|HH:MM:SS  --avg-hr BPM
+        \\  --ascent-m METERS  --descent-m METERS
         \\  --rpe 1-10  --pain 0-10  --pain-location TEXT
         \\  --reason TEXT  --notes TEXT
         \\
@@ -1063,9 +1074,9 @@ fn friendlyError(err: anyerror) []const u8 {
         error.RunnerProfileIdRequired => "runner profile field `profile_id` cannot be empty",
         error.InvalidPlanStartDate => "runner profile field `plan_start_date.value` must be a real YYYY-MM-DD date",
         error.InvalidRaceDate => "runner profile field `goal.race_date.value` must be a real YYYY-MM-DD date",
-        error.UnsupportedPlanLength => "the inclusive span from `plan_start_date.value` through `goal.race_date.value` must be 8–24 weeks",
+        error.UnsupportedPlanLength => "the inclusive span from `plan_start_date.value` through `goal.race_date.value` must be 55–168 days",
         error.InvalidTargetTime => "runner profile field `goal.target_time_seconds.value` must be greater than zero",
-        error.InvalidRunningDayCount => "runner profile field `availability.running_days.value` must contain 3–6 core days",
+        error.InvalidRunningDayCount => "runner profile field `availability.running_days.value` must contain 2–6 core days",
         error.DuplicateRunningDay => "runner profile field `availability.running_days.value` contains a duplicate day",
         error.LongRunDayUnavailable => "runner profile field `preferred_long_run_day.value` must be one of the core running days",
         error.QualityDayUnavailable => "runner profile field `preferred_quality_day.value` must be one of the core running days",
@@ -1073,6 +1084,13 @@ fn friendlyError(err: anyerror) []const u8 {
         error.OptionalDayIsCoreDay => "runner profile field `optional_recovery_day.value` must not duplicate a core running day",
         error.InvalidAverageWeeklyDistance => "runner profile field `average_weekly_distance_km.value` must be finite and non-negative",
         error.InvalidLongestRun => "runner profile field `longest_run_km.value` must be finite and non-negative",
+        error.DurationLoadBaselineRequired => "duration-based planning requires `baseline.longest_run_duration_seconds`",
+        error.InvalidLongestRunDuration => "runner profile field `baseline.longest_run_duration_seconds.value` must be greater than zero",
+        error.TrailCourseAscentRequired => "a trail goal requires `goal.course.total_ascent_meters`",
+        error.TrailCourseDescentRequired => "a trail goal requires `goal.course.total_descent_meters`",
+        error.TrailCourseTechnicalityRequired => "a trail goal requires `goal.course.technicality`",
+        error.TrailBaselineAscentRequired => "a trail goal requires `baseline.average_weekly_ascent_meters`",
+        error.TrailLongestRunAscentRequired => "a trail goal requires `baseline.longest_run_ascent_meters`",
         error.EmptyWeeklyDistanceHistory => "runner profile field `weekly_distance_history_km.value` cannot be an empty list",
         error.InvalidWeeklyDistanceHistory => "runner profile field `weekly_distance_history_km.value` contains an invalid distance",
         error.InvalidPerformanceDate => "a recent performance has an invalid `date`",
@@ -1132,6 +1150,9 @@ fn friendlyError(err: anyerror) []const u8 {
         error.DuplicateWorkoutCategory => "workout category IDs must be unique",
         error.InvalidWorkoutRecipe => "every workout recipe needs an ID, description, and at least one phase",
         error.InvalidQualityProgressionPolicy => "quality-progression values are incomplete, inconsistent, or outside supported bounds",
+        error.InvalidTrailSpecificPolicy => "the policy contains invalid trail-specific progression parameters",
+        error.InvalidDurationProgressionPolicy => "the policy contains invalid duration-progression parameters",
+        error.TrailPolicyRequiresEffortOnlyPacing => "trail policy must use effort-only pacing",
         error.DuplicateWorkoutRecipe => "workout recipe IDs must be unique",
         error.UnknownWorkoutCategory => "a workout recipe refers to an unknown category",
         error.UnknownWorkoutPhase => "a workout recipe refers to an unknown phase",
@@ -1141,13 +1162,17 @@ fn friendlyError(err: anyerror) []const u8 {
         error.MissingPolicyEvidenceBacklink => "an evidence policy link is missing from the corresponding rule",
         error.PlanAssessmentProfileRequired => "plan assess requires a runner profile JSON file",
         error.ProfileOutsidePolicyScope => "the runner profile is outside the selected policy's supported scope",
+        error.TrailCourseOutsidePolicyScope => "the trail course exceeds the selected policy's supported ascent",
+        error.TrailPolicyRulesRequired => "the selected policy does not contain trail-specific rules",
         error.MissingAssessmentPolicyRule => "the policy is missing a rule required to explain the assessment",
         error.MissingPlanAction => "plan requires `assess`, `generate`, `preview`, `markdown`, or `apply`",
         error.PlanGenerationProfileRequired => "plan generate requires a runner profile JSON file",
         error.PlanGenerationOutputRequired => "plan generate requires `--output PROPOSED_PLAN.json`",
         error.RaceDateUnavailable => "the race date cannot be listed as unavailable",
         error.PlanTooShortForPolicyPhases => "the plan is too short for the policy's required phases",
-        error.NotEnoughAvailableRunningDays => "a week has fewer than three available core running days",
+        error.NotEnoughAvailableRunningDays => "a week has fewer than the required available core running days",
+        error.DurationProgressionPolicyRequired => "duration-based generation requires duration progression rules in the selected policy",
+        error.DurationProgressionIncomplete => "duration-based generation produced an incomplete duration prescription",
         error.LongRunCannotBeScheduled => "a long run cannot be placed on an available core day",
         error.QualityWorkoutCannotBeScheduled => "a quality workout cannot be placed with the required demanding-session spacing",
         error.GeneratedPlanStartMismatch => "generated plan start does not match the runner profile",
@@ -1159,6 +1184,7 @@ fn friendlyError(err: anyerror) []const u8 {
         error.GeneratedWeeklySummaryDatesMismatch => "generated weekly summary dates do not match its daily schedule",
         error.GeneratedWeeklySummaryMismatch => "generated weekly summary does not match its daily schedule",
         error.GeneratedWeekDecisionMismatch => "a generated weekly decision does not match the selected policy",
+        error.GeneratedTrailWeekMismatch => "generated trail vertical targets do not match their daily workouts or planner decision",
         error.GeneratedPlanDatesNotConsecutive => "generated plan dates are not consecutive",
         error.GeneratedWeekHasMultiplePhases => "a generated week contains more than one phase",
         error.GeneratedPhaseOrderInvalid => "generated phases are out of order",
@@ -1175,6 +1201,10 @@ fn friendlyError(err: anyerror) []const u8 {
         error.GeneratedWorkoutDecisionRecipeMismatch => "a generated workout recipe is not valid for its phase",
         error.GeneratedWorkoutDecisionRuleMismatch => "a generated workout decision refers to missing policy rules",
         error.GeneratedWorkoutDecisionDistanceMismatch => "a generated workout decision records the wrong distance",
+        error.GeneratedWorkoutDecisionDurationMismatch => "a generated workout decision records the wrong duration",
+        error.GeneratedWorkoutLoadBasisMismatch => "a generated workout decision records the wrong training-load basis",
+        error.GeneratedWorkoutTrailDecisionMismatch => "a generated workout decision records the wrong terrain or vertical target",
+        error.GeneratedTrailWorkoutInvalid => "every core trail workout must use trail terrain and effort-only pacing",
         error.UnknownGeneratedWorkoutKind => "the generator produced an unknown workout kind",
         error.GeneratedWorkoutRecipeNotFound => "the generator selected a workout recipe missing from the policy",
         error.GeneratedQualityProgressionDecisionRequired => "every generated quality workout needs a structured progression decision",
@@ -1191,6 +1221,17 @@ fn friendlyError(err: anyerror) []const u8 {
         error.GeneratedOptionalRunTooLong => "generated optional run exceeds its weekly-volume allowance",
         error.GeneratedWeeklyVolumeAbovePeak => "generated weekly volume exceeds the baseline-relative peak limit",
         error.GeneratedWeeklyVolumeIncreaseTooLarge => "generated weekly volume increases too quickly",
+        error.GeneratedWeeklyAscentIncreaseTooLarge => "generated weekly ascent increases too quickly",
+        error.GeneratedWeeklyAscentAbovePeak => "generated weekly ascent exceeds the trail policy peak",
+        error.GeneratedLongRunAscentTooHigh => "generated long-run ascent exceeds its race or weekly share limit",
+        error.GeneratedLongRunAscentIncreaseTooLarge => "generated long-run ascent increases too quickly",
+        error.GeneratedTrailSpecificityMissing => "generated trail week does not include enough trail-specific sessions",
+        error.GeneratedDurationWeekCountMismatch => "a duration-based week does not match the profile's planned running frequency",
+        error.GeneratedDurationQualityMissing => "a duration-based week must contain one explicit quality session",
+        error.GeneratedDurationRaceWeekInvalid => "the generated duration-based race week has an invalid sharpening run, long run, or race ascent",
+        error.GeneratedDurationInvalid => "a generated week has invalid regular-run or long-run duration",
+        error.GeneratedDurationIncreaseTooLarge => "a generated running duration increases too quickly",
+        error.GeneratedDurationAbovePeak => "a generated running duration exceeds the policy maximum",
         error.GeneratedLongRunShareTooHigh => "generated long run exceeds its allowed share of weekly volume",
         error.GeneratedLongRunTooLong => "generated long run exceeds the policy maximum",
         error.GeneratedLongRunIncreaseTooLarge => "generated long run increases too quickly",

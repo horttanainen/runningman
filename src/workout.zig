@@ -58,6 +58,12 @@ pub fn printDetails(writer: *Io.Writer, value: model.Workout, indent: []const u8
 }
 
 pub fn printRunningDetails(writer: *Io.Writer, value: model.Workout, indent: []const u8) !void {
+    if (value.terrain) |terrain| {
+        try writer.print("{s}Terrain: {s}", .{ indent, @tagName(terrain) });
+        if (value.ascent_meters) |ascent| try writer.print("; approximately {d} m ascent", .{ascent});
+        if (value.descent_meters) |descent| try writer.print("; approximately {d} m descent", .{descent});
+        try writer.writeByte('\n');
+    }
     for (value.segments) |segment| {
         try writer.print("{s}- {s}: ", .{ indent, segment.label });
         try printSegmentPrescription(writer, segment);
@@ -200,6 +206,7 @@ fn bicycleEffort(value: model.Workout, segment_index: usize) []const u8 {
         const is_support_segment = value.segments.len >= 3 and
             (segment_index == 0 or segment_index + 1 == value.segments.len);
         if (is_support_segment) return "easy conversational RPE 2–4";
+        if (std.mem.eql(u8, value.phase, "race")) return "relaxed RPE 4–5";
         if (isRaceSpecificPhase(value.phase)) return "controlled tempo RPE 5–7";
         return "controlled hard RPE 6–8";
     }

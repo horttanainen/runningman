@@ -82,11 +82,17 @@ When a target is supplied:
 The training anchor uses a supported requested time or the planner's
 recommendation. It never uses an aspirational or infeasible time.
 
+For a trail goal, the flat-running equivalence is displayed only as baseline
+context. The planner does not turn it into a predicted trail finish time or a
+kilometre pace. Gradient, surface, technicality, altitude, and descending skill
+make that precision unsupported, so the target becomes effort-based completion
+and all trail prescriptions use RPE and breathing cues.
+
 ## Policy-rule ledger
 
 | Rule | Purpose | Evidence | Explicit assumption |
 |---|---|---|---|
-| `SCOPE-01` | Half marathon, 56–168 days, 3–6 core days | None | Approved Phase 1 scope |
+| `SCOPE-01` | Half marathon, 55–168 days, 3–6 distance-based or 2–6 duration-based core days | None | Approved product scope; 55 days admits a Monday start before a Saturday race |
 | `PER-01` | Foundation → build/recovery → race-specific → taper → race | `E-TID-001`, `E-BLOCK-001` | Transparent traditional phases are preferred for version 2 |
 | `BASE-01` | Race-equivalence estimate with uncertainty | `E-PRED-001` | Distance-specific uncertainty bands |
 | `TARGET-01` | Recommendation and feasibility classification | `E-PRED-001` | Improvement, rounding, readiness, and aspiration parameters |
@@ -99,6 +105,7 @@ recommendation. It never uses an aspirational or infeasible time.
 | `OPTIONAL-01` | Keep recovery run removable | None | At most 12% of weekly distance |
 | `MISSED-01` | Do not stack missed work | None | Preserve remaining structure and spacing |
 | `RECIPE-01` | Phase-appropriate recipes and explicit quality-work progression | `E-TID-001` | Exact work increments, repetition formats, and recoveries are deterministic construction choices |
+| `TRAIL-01` | Course-aware vertical progression, trail specificity, effort pacing, and controlled descending | `E-TRAIL-PERF-001`, `E-DOWNHILL-001`, `E-TRAIL-INJURY-001` | Exact ascent caps, fractions, and session counts are conservative construction choices |
 
 The reviewed evidence is stored in
 [`evidence/half-marathon.json`](../evidence/half-marathon.json). Policy
@@ -125,10 +132,61 @@ reduce or hold quality work relative to the preceding quality session. The
 independent plan validator recomputes these relationships and rejects edited
 proposals whose structured segments and progression record disagree.
 
+In a low-volume taper week, the minimum warm-up and cooldown may reduce from
+1 km to 500 m each so the retained quality dose fits inside the weekly quality
+cap. Both segments remain explicit and must be non-zero.
+
 These exact increments and formats are transparent product assumptions. The
 cited intensity-distribution evidence supports controlled quality within a
 mostly low-intensity program, but does not identify one universally optimal
 repetition sequence.
+
+## Trail-specific progression
+
+A profile with `goal.course.surface.value` set to `trail` must supply race
+ascent and technicality. Race descent may remain unknown. When recent average
+weekly ascent and longest-run ascent are present, they provide the vertical
+baseline. Otherwise, the same trail modifier uses an explicit conservative
+course-relative construction regardless of running frequency or load basis.
+The trail policy currently supports races with no more
+than 1,500 m of ascent. The generator then adds:
+
+- weekly and long-run ascent targets with structured provenance;
+- no more than 15% ascent growth from the immediately preceding non-taper week;
+- an ascent peak bounded by both the baseline and race-course demand;
+- reduced vertical load in recovery and taper weeks;
+- uphill repetitions or sustained uphill effort in quality sessions;
+- at least one trail-specific core session each week; and
+- controlled descending, with hard descending removed during the final 14 days.
+
+The race week contains the course's complete vertical demand, so it is excluded
+from the training-week ascent-growth check. Core trail sessions are allocated
+explicit terrain and vertical targets, while optional recovery remains freely
+removable and carries no required ascent.
+
+The runner profile selects distance- or duration-based training load explicitly.
+That selection is independent of running frequency and trail surface. Duration
+load allocates one explicit time-based quality session, one long run or hike,
+and easy sessions on remaining available days. The same phase, recovery, taper,
+spacing, provenance, and validation rules apply at every supported frequency.
+Unknown ascent history starts from 30% of race
+ascent, is capped at 80% before race week, and uses the normal 15% weekly growth
+limit. These percentages and duration increments are conservative product
+assumptions, not claims of a uniquely optimal training dose. Other exercise is
+outside the generated plan and receives no running-distance or ascent credit.
+
+The trail-running performance review identifies physiological, neuromuscular,
+biomechanical, and course characteristics relevant to performance
+([de Waal et al.](https://pubmed.ncbi.nlm.nih.gov/33508776/)). The downhill
+review describes the muscle-damage and neuromuscular demands of prolonged
+downhill running and the protective repeated-bout effect
+([Bontemps et al.](https://pubmed.ncbi.nlm.nih.gov/33037592/)). The clinical
+review supports terrain-specific preparation and highlights common lower-limb
+injury considerations
+([Vincent et al.](https://pmc.ncbi.nlm.nih.gov/articles/PMC8811510/)). These
+sources support specificity, progressive exposure, and caution around downhill
+load; they do not validate a universal 15% ascent rule or the exact fractions
+encoded here. Those numbers remain visible product assumptions.
 
 ## Evidence boundaries
 

@@ -73,6 +73,42 @@ between unrelated 1 km and 500 m formats. The proposal is never applied
 automatically. With no supported pace anchor, the plan retains effort guidance
 without inventing pace or duration precision.
 
+### Trail half marathons
+
+The same planner can generate a course-aware trail plan. Start from the trail
+profile example and record the race ascent and technicality. Race descent and
+recent ascent history remain optional rather than being invented when unknown:
+
+```sh
+./zig-out/bin/runningman profile validate examples/runner-profile-trail.json
+./zig-out/bin/runningman plan assess examples/runner-profile-trail.json
+./zig-out/bin/runningman plan generate examples/runner-profile-trail.json \
+  --output trail-plan.json
+./zig-out/bin/runningman plan preview trail-plan.json
+./zig-out/bin/runningman plan markdown trail-plan.json \
+  --output trail-training-plan.md
+```
+
+Trail plans retain the road planner's distance, recovery, spacing, and taper
+guardrails, then add periodized weekly ascent, long-run ascent, uphill quality
+work, trail-specific sessions, controlled descending, and race-course vertical
+targets. All trail workouts use effort guidance rather than converting a flat
+performance into a trail pace or finish-time prediction. The generated JSON
+records terrain and ascent/descent for every core workout and the Markdown plan
+shows weekly vertical targets. See
+[`docs/half-marathon-policy.md`](docs/half-marathon-policy.md) for the evidence
+boundaries and explicit product assumptions.
+
+The profile chooses `baseline.training_load_basis` independently of running-day
+availability. `distance` uses measured weekly kilometres; `duration` progresses
+time-based regular, quality, and long-run prescriptions. The duration example
+uses two available days, but the same load path also supports additional easy
+days without changing its macrocycle, workout roles, or validator. Trail terrain
+and vertical targets are applied after load and session allocation. If ascent
+history is absent, either load basis uses conservative course-relative vertical
+targets while leaving the profile's history missing. Other exercise is neither
+scheduled nor credited as running load.
+
 Generated proposals also embed deterministic provenance: the complete runner
 profile and policy snapshots, SHA-256 identities for the profile, policy, and
 evidence ledger, the assessment used for pacing, and structured decisions for
@@ -131,8 +167,9 @@ assessment will recommend a supported target or outcome range. The
 `recent_performances.value` list may be empty, but it must still be present so
 that missing performance evidence is explicit.
 
-The current profile format supports half-marathon plans spanning 8–24 weeks
-and 3–6 core running days. Profile validation also checks date ordering, day
+The current profile format supports half-marathon plans spanning 55–168 days
+and 2–6 core running days. The distance policy requires at least three days;
+the duration policy supports two or more. Profile validation also checks date ordering, day
 availability, numeric baselines, recent performances, and known unavailable
 dates. The evidence ledger requires traceable citations, populations,
 comparisons, outcomes, limitations, confidence, planning implications, and
@@ -322,6 +359,8 @@ Or provide everything directly:
   --distance 7.1 \
   --duration 44:30 \
   --avg-hr 141 \
+  --ascent-m 120 \
+  --descent-m 115 \
   --rpe 3 \
   --pain 0 \
   --notes "Easy and relaxed"
@@ -347,8 +386,8 @@ A modified workout requires a reason:
   --reason "Stopped intervals early"
 ```
 
-RPE uses 1–10 and pain uses 0–10. Distance, duration, heart rate, RPE, pain, and
-notes are optional. For repetition-based workouts such as intervals or hills,
+RPE uses 1–10 and pain uses 0–10. Distance, duration, heart rate, ascent,
+descent, RPE, pain, and notes are optional. For repetition-based workouts such as intervals or hills,
 you can record completion, RPE, pain, and a short note without inventing a
 distance or duration. Logging the same date again creates an explicit correction
 linked to the prior activity. The next morning’s Oura scores provide the
@@ -427,7 +466,14 @@ warning.
 ## Import a Garmin activity
 
 Export the original activity from Garmin Connect, or copy its `.fit` file from
-the Edge device, then pass either the FIT file or Garmin's ZIP unchanged:
+the Edge device, into `garmin_activity_exports/`. With no file argument, the
+importer selects the most recently modified `.fit` or `.zip` file:
+
+```sh
+./scripts/import-garmin
+```
+
+You can also pass either the FIT file or Garmin's ZIP explicitly:
 
 ```sh
 ./scripts/import-garmin garmin_activity_exports/23767860323.zip
@@ -435,8 +481,8 @@ the Edge device, then pass either the FIT file or Garmin's ZIP unchanged:
 
 The importer validates the FIT checksums and reads running and cycling session
 summaries locally. It normally selects the sport stored in the FIT file. Date,
-timer duration, distance, and average heart rate populate dedicated activity
-fields. Available measurements such as maximum heart rate, speed, elevation,
+timer duration, distance, average heart rate, ascent, and descent populate
+dedicated activity fields. Available measurements such as maximum heart rate and speed,
 calories, cadence, power, training effect, temperature, laps, and
 heart-rate-zone durations are preserved in notes. GPS coordinates and device
 identifiers are not copied into the training log.

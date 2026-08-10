@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-zig fmt build.zig src
+bash scripts/format.sh
 zig build
 zig build test
 sh -n \

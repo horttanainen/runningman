@@ -58,10 +58,28 @@ pub fn assess(
     if (profile.goal.race_distance.value != policy.support.race_distance) {
         return error.ProfileOutsidePolicyScope;
     }
+    if (runner_profile.surface(profile) == .trail) {
+        const trail = policy.trail_specific orelse
+            return error.ProfileOutsidePolicyScope;
+        const course = runner_profile.trailCourse(profile) orelse
+            return error.ProfileOutsidePolicyScope;
+        const ascent = course.total_ascent_meters orelse
+            return error.TrailCourseAscentRequired;
+        if (ascent.value > trail.maximum_supported_ascent_meters) {
+            return error.TrailCourseOutsidePolicyScope;
+        }
+    }
+    const minimum_core_running_days = if (runner_profile.trainingLoadBasis(profile) == .duration)
+        if (policy.duration_progression) |progression|
+            progression.minimum_core_running_days
+        else
+            policy.support.minimum_core_running_days
+    else
+        policy.support.minimum_core_running_days;
     if (profile_summary.plan_days < policy.support.minimum_plan_days or
         profile_summary.plan_days > policy.support.maximum_plan_days or
         profile_summary.core_running_days <
-            policy.support.minimum_core_running_days or
+            minimum_core_running_days or
         profile_summary.core_running_days >
             policy.support.maximum_core_running_days)
     {
@@ -70,7 +88,7 @@ pub fn assess(
 
     const plan_start = try date.parse(profile.plan_start_date.value);
     const candidate = selectPrimaryPerformance(profile, policy, plan_start);
-    const plan_weeks: u8 = @intCast(profile_summary.plan_days / 7);
+    const plan_weeks: u8 = @intCast((profile_summary.plan_days + 6) / 7);
 
     var result: Assessment = .{
         .plan_days = profile_summary.plan_days,
@@ -153,6 +171,16 @@ pub fn assess(
         policy,
     );
 
+    if (runner_profile.surface(profile) == .trail) {
+        result.planner_recommended_target_seconds = null;
+        result.training_pace_anchor_seconds = null;
+        result.feasibility = if (result.requested_target_seconds == null)
+            .completion
+        else
+            .aspirational;
+        return result;
+    }
+
     if (result.requested_target_seconds == null) {
         result.feasibility = .recommended;
         result.training_pace_anchor_seconds = central_target;
@@ -210,7 +238,7 @@ pub fn print(
                 "inside the policy's recency window\n\n",
         );
         try printTarget(writer, profile, result);
-        try printEffortGuidance(writer, policy, result);
+        try printEffortGuidance(writer, profile, policy, result);
         try printPolicyBasis(writer, policy);
         return;
     }
@@ -223,14 +251,18 @@ pub fn print(
     });
     try printDuration(writer, performance.duration_seconds);
     try writer.print(
-        " ({s}, {s}, {d} days before plan start)\n" ++
-            "  Current half-marathon equivalent: ",
+        " ({s}, {s}, {d} days before plan start)\n",
         .{
             @tagName(performance.kind),
             @tagName(performance.effort),
             result.primary_performance_age_days.?,
         },
     );
+    if (runner_profile.surface(profile) == .trail) {
+        try writer.writeAll("  Current flat-running half-marathon equivalent: ");
+    } else {
+        try writer.writeAll("  Current half-marathon equivalent: ");
+    }
     try printDuration(writer, result.current_half_marathon_estimate_seconds.?);
     try writer.print(
         "\n  Estimate uncertainty: ±{d:.1}%\n" ++
@@ -266,7 +298,7 @@ pub fn print(
     try writer.writeByte('\n');
 
     try printTarget(writer, profile, result);
-    try printEffortGuidance(writer, policy, result);
+    try printEffortGuidance(writer, profile, policy, result);
     try printPolicyBasis(writer, policy);
 }
 
@@ -289,10 +321,17 @@ fn printTarget(
         try printDuration(writer, recommended);
         try writer.writeByte('\n');
     } else {
-        try writer.writeAll(
-            "  Planner recommendation: completion goal until a recent hard " ++
-                "performance is available\n",
-        );
+        if (runner_profile.surface(profile) == .trail) {
+            try writer.writeAll(
+                "  Planner recommendation: effort-based completion goal; " ++
+                    "flat performance does not predict technical trail time\n",
+            );
+        } else {
+            try writer.writeAll(
+                "  Planner recommendation: completion goal until a recent hard " ++
+                    "performance is available\n",
+            );
+        }
     }
     try writer.print(
         "  Classification: {s}\n",
@@ -336,12 +375,11 @@ fn printTarget(
         },
     }
     try writer.writeByte('\n');
-
-    _ = profile;
 }
 
 fn printEffortGuidance(
     writer: *Io.Writer,
+    profile: runner_profile.RunnerProfile,
     policy: training_policy.Policy,
     result: Assessment,
 ) !void {
@@ -375,10 +413,17 @@ fn printEffortGuidance(
             );
         }
     } else {
-        try writer.writeAll(
-            "  Pace guidance: effort-only until a supported performance " ++
-                "estimate is available\n",
-        );
+        if (runner_profile.surface(profile) == .trail) {
+            try writer.writeAll(
+                "  Pace guidance: effort-only on trail; gradient, surface, and " ++
+                    "technicality make flat pace an unreliable anchor\n",
+            );
+        } else {
+            try writer.writeAll(
+                "  Pace guidance: effort-only until a supported performance " ++
+                    "estimate is available\n",
+            );
+        }
     }
     try writer.writeByte('\n');
 }
