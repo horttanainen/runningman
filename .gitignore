@@ -3,6 +3,7 @@
 /.DS_Store
 /polar_beat_screenshots/
 /garmin_activity_exports/
+/oura_trends/
 /*.jsonl
 /weekly-check-in*.md
 /proposed-plan.json

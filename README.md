@@ -343,6 +343,28 @@ Record the Oura scores shown each morning:
 Running `check-in` without score flags prompts for them interactively. A second
 check-in for the same date creates an append-only correction.
 
+### Import Oura Trends in bulk
+
+Download an Oura Trends CSV with `Sleep Score` and `Readiness Score`, then put
+it in `oura_trends/`. Import the newest CSV in that directory with:
+
+```sh
+./scripts/import-oura
+```
+
+The importer validates the complete CSV first, displays every dated score, and
+marks dates that already have a morning check-in. After explicit approval, it
+records only missing dates through the normal append-only `check-in` command.
+It never creates corrections for dates already present.
+
+Pass a particular export, inspect without recording, or use another data file:
+
+```sh
+./scripts/import-oura oura_trends/oura_2026-08-11_2026-08-18_trends.csv
+./scripts/import-oura --dry-run
+./scripts/import-oura --data ~/training/running.jsonl OURA_TRENDS.csv
+```
+
 ## Record training
 
 Run `log` without activity flags for guided input:

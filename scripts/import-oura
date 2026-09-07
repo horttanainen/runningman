@@ -1,0 +1,238 @@
+#!/bin/sh
+set -eu
+
+script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repository_root=$(dirname "$script_directory")
+trend_directory=${OURA_TREND_DIR:-"$repository_root/oura_trends"}
+runningman_binary=${RUNNINGMAN_BIN:-"$repository_root/zig-out/bin/runningman"}
+
+data_path="$repository_root/runningman-data.jsonl"
+dry_run=false
+trend_path=""
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ./scripts/import-oura [--data PATH] [--dry-run] [OURA_TRENDS.csv]
+
+Reads an Oura Trends CSV containing Date, Sleep Score, and Readiness Score,
+shows every dated score, and records missing morning check-ins after approval.
+When the CSV path is omitted, the newest CSV in oura_trends/ is used.
+
+Options:
+  --data PATH  Use a non-default runningman JSONL file
+  --dry-run    Show scores and statuses without asking or recording anything
+  -h, --help   Show this help
+EOF
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+require_value() {
+    option=$1
+    count=$2
+    if [ "$count" -lt 2 ]; then
+        fail "$option requires a value"
+    fi
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --data)
+            require_value "$1" "$#"
+            data_path=$2
+            shift 2
+            ;;
+        --dry-run)
+            dry_run=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            fail "unknown option $1"
+            ;;
+        *)
+            if [ -n "$trend_path" ]; then
+                fail "expected exactly one Oura Trends CSV"
+            fi
+            trend_path=$1
+            shift
+            ;;
+    esac
+done
+
+select_latest_trend() {
+    if [ ! -d "$trend_directory" ]; then
+        fail "Oura Trends directory not found: $trend_directory"
+    fi
+
+    for candidate in "$trend_directory"/*.csv "$trend_directory"/*.CSV; do
+        if [ ! -f "$candidate" ]; then
+            continue
+        fi
+        if [ -z "$trend_path" ] || [ "$candidate" -nt "$trend_path" ]; then
+            trend_path=$candidate
+        fi
+    done
+
+    if [ -z "$trend_path" ]; then
+        fail "no CSV files found in $trend_directory"
+    fi
+}
+
+if [ -z "$trend_path" ]; then
+    select_latest_trend
+fi
+if [ ! -f "$trend_path" ]; then
+    fail "Oura Trends CSV not found: $trend_path"
+fi
+if [ ! -f "$data_path" ]; then
+    fail "runningman data file not found: $data_path"
+fi
+if [ ! -x "$runningman_binary" ]; then
+    fail "runningman executable not found at $runningman_binary; run ./check.sh first"
+fi
+
+temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/runningman-oura.XXXXXX")
+trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
+normalized_scores="$temporary_directory/scores.tsv"
+existing_dates="$temporary_directory/existing-dates.txt"
+missing_scores="$temporary_directory/missing.tsv"
+
+if ! awk -F ',' '
+    function reject(message) {
+        print message > "/dev/stderr"
+        failed = 1
+        exit 1
+    }
+    NR == 1 {
+        sub(/\r$/, "", $NF)
+        for (column = 1; column <= NF; column++) {
+            if ($column == "date" || $column == "Date") date_column = column
+            if ($column == "Sleep Score") sleep_column = column
+            if ($column == "Readiness Score") readiness_column = column
+        }
+        if (NF != 3 || !date_column || !sleep_column || !readiness_column) {
+            reject("Expected CSV columns: date, Sleep Score, Readiness Score (in any order)")
+        }
+        next
+    }
+    {
+        sub(/\r$/, "", $NF)
+    }
+    NF == 0 || (NF == 1 && $1 == "") {
+        next
+    }
+    NF != 3 {
+        reject(sprintf("Invalid Oura CSV row %d: expected exactly three columns", NR))
+    }
+    {
+        score_date = $date_column
+        sleep_score = $sleep_column
+        readiness_score = $readiness_column
+        $1 = score_date
+        $2 = sleep_score
+        $3 = readiness_score
+    }
+    $1 !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ {
+        reject(sprintf("Invalid Oura CSV date on row %d: %s", NR, $1))
+    }
+    $2 !~ /^[0-9]+$/ || ($2 + 0) < 0 || ($2 + 0) > 100 {
+        reject(sprintf("Invalid Oura Sleep Score on row %d: %s", NR, $2))
+    }
+    $3 !~ /^[0-9]+$/ || ($3 + 0) < 0 || ($3 + 0) > 100 {
+        reject(sprintf("Invalid Oura Readiness Score on row %d: %s", NR, $3))
+    }
+    seen[$1] {
+        reject(sprintf("Duplicate Oura date on row %d: %s", NR, $1))
+    }
+    {
+        seen[$1] = 1
+        score_rows++
+        printf "%s\t%d\t%d\n", $1, $2, $3
+    }
+    END {
+        if (!failed && score_rows == 0) {
+            print "Oura Trends CSV contains no score rows" > "/dev/stderr"
+            exit 1
+        }
+    }
+' "$trend_path" > "$normalized_scores"; then
+    fail "could not parse Oura Trends CSV: $trend_path"
+fi
+
+tab=$(printf '\t')
+while IFS="$tab" read -r score_date sleep_score readiness_score; do
+    validated_date=$(date -j -f '%Y-%m-%d' "$score_date" '+%Y-%m-%d' 2>/dev/null || true)
+    if [ "$validated_date" != "$score_date" ]; then
+        fail "invalid calendar date in Oura Trends CSV: $score_date"
+    fi
+done < "$normalized_scores"
+
+sed -n \
+    '/"type":"morning_check_in"/s/.*"date":"\([^"]*\)".*/\1/p' \
+    "$data_path" | sort -u > "$existing_dates"
+
+source_name=$(basename "$trend_path")
+missing_count=0
+existing_count=0
+
+printf 'Oura Trends from %s:\n\n' "$source_name"
+printf '%-12s %7s %11s  %s\n' 'Date' 'Sleep' 'Readiness' 'Status'
+printf '%-12s %7s %11s  %s\n' '----------' '-----' '---------' '------'
+
+while IFS="$tab" read -r score_date sleep_score readiness_score; do
+    if grep -Fxq "$score_date" "$existing_dates"; then
+        status='already recorded; skipped'
+        existing_count=$((existing_count + 1))
+    else
+        status='missing; will check in'
+        missing_count=$((missing_count + 1))
+        printf '%s\t%s\t%s\n' \
+            "$score_date" "$sleep_score" "$readiness_score" >> "$missing_scores"
+    fi
+    printf '%-12s %7s %11s  %s\n' \
+        "$score_date" "$sleep_score" "$readiness_score" "$status"
+done < "$normalized_scores"
+
+printf '\n%d missing check-in(s); %d already recorded.\n' \
+    "$missing_count" "$existing_count"
+
+if [ "$missing_count" -eq 0 ]; then
+    printf '%s\n' 'Nothing to record.'
+    exit 0
+fi
+if [ "$dry_run" = true ]; then
+    printf '%s\n' 'Dry run: no check-ins recorded.'
+    exit 0
+fi
+
+printf '\nRecord these %d missing Oura check-in(s)? [y/N] ' "$missing_count"
+IFS= read -r answer || answer=""
+case "$answer" in
+    y|Y|yes|YES|Yes) ;;
+    *)
+        printf '%s\n' 'Import cancelled.'
+        exit 0
+        ;;
+esac
+
+notes="Oura Trends import; source $source_name"
+imported_count=0
+while IFS="$tab" read -r score_date sleep_score readiness_score; do
+    "$runningman_binary" \
+        --data "$data_path" \
+        check-in "$score_date" \
+        --sleep "$sleep_score" \
+        --readiness "$readiness_score" \
+        --notes "$notes"
+    imported_count=$((imported_count + 1))
+done < "$missing_scores"
+
+printf 'Imported %d Oura check-in(s).\n' "$imported_count"
