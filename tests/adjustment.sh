@@ -94,6 +94,7 @@ grep -q '2026-10-18 -> 2026-11-22 (flexible)' "$temporary_directory/flexible.txt
 grep -q 'No source weeks omitted' "$temporary_directory/flexible.txt"
 grep -q 'Repeat source week 4' "$temporary_directory/flexible.txt"
 grep -q 'NOT a mandatory duration' "$temporary_directory/flexible.txt"
+grep -q '"recovery_rounding": "source_half_km"' "$temporary_directory/flexible.json"
 midweek_data="$temporary_directory/midweek-return.jsonl"
 cp "$data_file" "$midweek_data"
 "$binary" --data "$midweek_data" log 2026-09-07 --distance 7 --rpe 3 >/dev/null

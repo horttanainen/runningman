@@ -63,10 +63,13 @@ pub const Adjustment = struct {
     familiar_easy_km: f64 = 0,
     returned_weekly_km: ?f64 = null,
     returned_long_run_km: ?f64 = null,
+    // Absent in older v3 records: reconstruct their strict recovery caps exactly.
+    recovery_rounding: ?RecoveryRounding = null,
     omitted_source_weeks: []const u8 = &.{},
 };
 
 pub const ReturnStage = enum { base, repeat, continuation };
+pub const RecoveryRounding = enum { source_half_km };
 
 pub const AdjustmentWeek = struct {
     week: u8,

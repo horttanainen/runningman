@@ -152,6 +152,12 @@ or strain still appears in the review.
   demanding-session spacing, intensity distribution, and taper bounds. The
   easy-only return is intentionally exempt from the normal minimum quality
   allocation. These bounds are existing product assumptions, not Friel's rules.
+- Preserve source recovery weeks when they fit the generator's nearest-0.5-km
+  target rounding and the validator's existing 0.01 recovery-fraction tolerance.
+  For example, 38 km followed by 32.5 km remains intact, including its 1 km
+  repetitions; it is not scaled to 32.3 km and 994 m repetitions. Larger required
+  reductions remain constrained by the strict cap, and independent progression
+  and long-run limits still apply. This does not round recorded running data.
 - Once the repeated week is logged, continuation uses its actual running volume
   and long run for growth limits. Completing a shorter week does not count as
   having achieved its larger planned load.
@@ -161,6 +167,12 @@ or strain still appears in the review.
 
 The previous `--return-load-percent` option and policy v1/v2 proposals are
 explicitly rejected. Existing proposal files are never overwritten.
+
+New proposals record `recovery_rounding: source_half_km`. Older v3 proposals
+without this field keep their original strict-cap construction for validation
+and historical replay. An existing applied plan is not silently rewritten; the
+rounding correction takes effect in the next generated adjustment, including
+a next-stage proposal whose parent used the older rounding.
 
 ## Validation and persistence
 

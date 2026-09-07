@@ -201,6 +201,10 @@
         },
         "returned_weekly_km": { "type": "number", "exclusiveMinimum": 0 },
         "returned_long_run_km": { "type": "number", "exclusiveMinimum": 0 },
+        "recovery_rounding": {
+          "const": "source_half_km",
+          "description": "Preserve source half-kilometre recovery targets within existing validation tolerance. Absent in older v3 proposals, which retain strict recovery-cap construction."
+        },
         "omitted_source_weeks": {
           "type": "array",
           "uniqueItems": true,

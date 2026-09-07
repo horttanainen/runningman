@@ -105,6 +105,7 @@ pub fn generate(allocator: std.mem.Allocator, storage: *const store.Store, optio
         .familiar_easy_km = observed.easy_km,
         .returned_weekly_km = if (returned) |week| week.weekly_km else null,
         .returned_long_run_km = if (returned) |week| week.long_km else null,
+        .recovery_rounding = .source_half_km,
     };
     const race = switch (choice) {
         .flexible => try targeted.flexibleDate(parent.*, context),

@@ -198,6 +198,19 @@ pub fn pendingStage(context: provenance.Adjustment, target: date.Date) !?provena
     return null;
 }
 
+fn recoveryVolumeLimit(previous_km: f64, source_km: f64, maximum_fraction: f64, rounding: ?provenance.RecoveryRounding) f64 {
+    const strict_limit = previous_km * maximum_fraction;
+    if (rounding == null) return strict_limit;
+    // The source generator rounds weekly recovery targets to the nearest
+    // 0.5 km. Preserve that existing prescription only when it also fits the
+    // validator's existing 0.01 recovery-fraction tolerance. Other load and
+    // long-run limits still apply independently; larger reductions stay strict.
+    const rounded_limit = @round(strict_limit * 2) / 2;
+    if (source_km > rounded_limit + 1e-9 or
+        source_km > previous_km * (maximum_fraction + 0.01) + 1e-9) return strict_limit;
+    return @max(strict_limit, source_km);
+}
+
 pub fn build(allocator: std.mem.Allocator, parent: revision.RevisionFile, context: provenance.Adjustment, race: date.Date) !Plan {
     const original = (try interruption.originalPlan(&parent)).*;
     const start = try date.parse(parent.workouts[0].date);
@@ -255,7 +268,7 @@ pub fn build(allocator: std.mem.Allocator, parent: revision.RevisionFile, contex
             fraction = @min(fraction, pre_taper_peak * (1 - policy.taper.minimum_volume_reduction_fraction) / source.target_core_distance_km);
         } else if (!is_race) {
             var limit = established_volume * (1 + policy.volume_progression.maximum_build_increase_fraction);
-            if (std.mem.eql(u8, source.phase, "recovery")) limit = previous_volume * policy.recovery.maximum_volume_fraction;
+            if (std.mem.eql(u8, source.phase, "recovery")) limit = recoveryVolumeLimit(previous_volume, source.target_core_distance_km, policy.recovery.maximum_volume_fraction, context.recovery_rounding);
             fraction = @min(fraction, limit / source.target_core_distance_km);
             if (source.long_run_distance_km > 0) fraction = @min(fraction, (established_long + policy.long_run.maximum_weekly_increase_km) / source.long_run_distance_km);
         }
@@ -338,6 +351,7 @@ fn testContext(parent: *const revision.RevisionFile) provenance.Adjustment {
         .repeat_long_run_km = 15,
         .familiar_easy_km = 7.8,
         .race_date_choice = "flexible",
+        .recovery_rounding = .source_half_km,
         .parent = parent,
     };
 }
@@ -365,6 +379,77 @@ fn expectSameJson(allocator: std.mem.Allocator, expected: anytype, actual: @Type
         try std.json.Stringify.valueAlloc(allocator, expected, .{}),
         try std.json.Stringify.valueAlloc(allocator, actual, .{}),
     );
+}
+
+test "recovery rounding preserves source targets only inside existing rounding and fraction bounds" {
+    try std.testing.expectEqual(@as(f64, 32.5), recoveryVolumeLimit(38, 32.5, 0.85, .source_half_km));
+    try std.testing.expectEqual(@as(f64, 38), recoveryVolumeLimit(44.5, 38, 0.85, .source_half_km));
+    try std.testing.expectApproxEqAbs(@as(f64, 32.3), recoveryVolumeLimit(38, 32.5, 0.85, null), 1e-9);
+    // A meaningful excess still needs a real reduction, not a rounding waiver.
+    try std.testing.expectApproxEqAbs(@as(f64, 32.3), recoveryVolumeLimit(38, 33, 0.85, .source_half_km), 1e-9);
+    try std.testing.expectEqual(@as(f64, 25.5), recoveryVolumeLimit(30, 32.5, 0.85, .source_half_km));
+    // At small volumes, a half-km rounding step can exceed the ratio tolerance.
+    try std.testing.expectApproxEqAbs(@as(f64, 10.285), recoveryVolumeLimit(12.1, 10.5, 0.85, .source_half_km), 1e-9);
+}
+
+test "unchanged source loading preserves recovery prescriptions including one kilometre repetitions" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const parent = try testParent(allocator);
+    const context = testContext(&parent);
+    const proposed = try testProposal(allocator, context, try flexibleDate(parent, context));
+    _ = try plan_validator.validateEmbedded(allocator, proposed);
+    try std.testing.expectEqual(@as(f64, 32.5), proposed.weeks[9].target_core_distance_km);
+    try std.testing.expectEqual(@as(f64, 13), proposed.weeks[9].long_run_distance_km);
+    try std.testing.expectEqual(@as(f64, 38), proposed.weeks[12].target_core_distance_km);
+    try std.testing.expectEqual(@as(f64, 15), proposed.weeks[12].long_run_distance_km);
+    for (proposed.provenance.adjustment.?.week_changes[1..]) |change| {
+        try std.testing.expectEqual(@as(f64, 1), change.distance_fraction);
+        const target_index = (@as(usize, change.week) - 1) * 7;
+        const source_index = (@as(usize, change.source_week) - 1) * 7;
+        for (0..7) |day| {
+            var source = parent.workouts[source_index + day];
+            source.date = proposed.workouts[target_index + day].date;
+            try expectSameJson(allocator, source, proposed.workouts[target_index + day]);
+        }
+    }
+    for ([_]usize{ 9, 12 }) |week| {
+        const quality = proposed.workouts[week * 7 + 1];
+        try std.testing.expectEqual(@as(u16, 3), quality.segments[1].repetitions);
+        try std.testing.expectEqual(@as(f64, 1), quality.segments[1].distance_km.?);
+    }
+}
+
+test "older v3 rounding remains reproducible while the next stage adopts corrected recovery rounding" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const parent = try testParent(allocator);
+    var context = testContext(&parent);
+    context.recovery_rounding = null;
+    const legacy = try testProposal(allocator, context, try flexibleDate(parent, context));
+    const json = try std.json.Stringify.valueAlloc(allocator, legacy, .{ .emit_null_optional_fields = false });
+    try std.testing.expect(std.mem.indexOf(u8, json, "recovery_rounding") == null);
+    const loaded = try std.json.parseFromSliceLeaky(revision.RevisionFile, allocator, json, .{});
+    _ = try plan_validator.validateEmbedded(allocator, loaded);
+    try std.testing.expectApproxEqAbs(@as(f64, 32.3), loaded.weeks[9].target_core_distance_km, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 37.8), loaded.weeks[12].target_core_distance_km, 1e-9);
+    context.parent = &loaded;
+    context.restart_date = "2026-09-14";
+    context.stage = .repeat;
+    context.base_weeks = 0;
+    context.recovery_rounding = .source_half_km;
+    const next = try testProposal(allocator, context, try flexibleDate(loaded, context));
+    _ = try plan_validator.validateEmbedded(allocator, next);
+    try expectSameJson(allocator, loaded.workouts[0..56], next.workouts[0..56]);
+    try std.testing.expectEqualStrings(loaded.race_date, next.race_date);
+    try std.testing.expectEqual(@as(f64, 32.5), next.weeks[9].target_core_distance_km);
+    try std.testing.expectEqual(@as(f64, 38), next.weeks[12].target_core_distance_km);
+    // Merely relabelling an old proposal must not bypass reconstruction checks.
+    var relabelled = loaded;
+    relabelled.provenance.adjustment.?.recovery_rounding = .source_half_km;
+    try std.testing.expectError(error.AdjustmentContinuationChanged, plan_validator.validateEmbedded(allocator, relabelled));
 }
 
 test "movable target preserves the full progression after aerobic return and completed loading week" {
