@@ -6,6 +6,8 @@ const plan_provenance = @import("plan_provenance.zig");
 const plan_revision = @import("plan_revision.zig");
 const store = @import("store.zig");
 const training_policy = @import("training_policy.zig");
+const interruption = @import("interruption.zig");
+const targeted_adjustment = @import("targeted_adjustment.zig");
 
 const Io = std.Io;
 
@@ -17,6 +19,7 @@ pub fn printProposal(
     try writer.print("Proposal explanation: schedule #{d}\n", .{revision.base_schedule_id});
     try printAssessment(writer, revision.provenance);
     if (target_date) |target| {
+        try printReturnStage(writer, revision.provenance, target);
         const workout = proposalWorkoutForDate(revision.workouts, target) orelse
             return error.NoScheduleForDate;
         const week = weekForNumber(revision.weeks, weekNumber(revision.workouts[0].date, target));
@@ -44,6 +47,7 @@ pub fn printSchedule(
     try writer.print("Schedule #{d} explanation\n", .{schedule_value.id});
     try printAssessment(writer, provenance);
     if (target_date) |target| {
+        try printReturnStage(writer, provenance, target);
         const planned = store.workoutForDate(storage, schedule_value.id, target) orelse
             return error.NoScheduleForDate;
         const week = weekForNumber(schedule_value.plan_weeks, planned.week) orelse
@@ -57,7 +61,14 @@ pub fn printSchedule(
 
 fn printAssessment(writer: *Io.Writer, provenance: plan_provenance.PlanProvenance) !void {
     const profile = provenance.runner_profile;
-    const result = try assessment.assess(profile, provenance.training_policy);
+    const assessment_profile = if (provenance.adjustment) |context|
+        (try interruption.originalPlan(context.parent)).provenance.runner_profile
+    else
+        profile;
+    const result = try assessment.assess(assessment_profile, provenance.training_policy);
+    if (provenance.adjustment) |context| {
+        try writer.print("Friel-inspired return, current stage: {s}. Source-week decisions below are retained context.\nThe performance assessment uses the original plan inputs, not extra improvement inferred from the moved target date. Later stages require response confirmation.\n\n", .{@tagName(context.stage)});
+    }
     try writer.print(
         "Planner inputs\n" ++
             "  Generator: {s}\n" ++
@@ -110,6 +121,12 @@ fn printAssessment(writer: *Io.Writer, provenance: plan_provenance.PlanProvenanc
     try printOptionalDuration(writer, "  Training pace anchor: ", result.training_pace_anchor_seconds);
     try printOptionalDuration(writer, "  Expected shortfall: ", result.expected_shortfall_seconds);
     try writer.writeByte('\n');
+}
+
+fn printReturnStage(writer: *Io.Writer, provenance: plan_provenance.PlanProvenance, target: date.Date) !void {
+    const context = provenance.adjustment orelse return;
+    const stage = (try targeted_adjustment.pendingStage(context, target)) orelse return;
+    try writer.print("PROVISIONAL {s} stage: this prescription requires a response-confirmed adjustment before use.\n", .{@tagName(stage)});
 }
 
 fn printWeeks(

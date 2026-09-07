@@ -5,6 +5,9 @@ const plan_provenance = @import("plan_provenance.zig");
 const plan_revision = @import("plan_revision.zig");
 const runner_profile = @import("runner_profile.zig");
 const training_policy = @import("training_policy.zig");
+const store = @import("store.zig");
+const targeted = @import("targeted_adjustment.zig");
+const interruption = @import("interruption.zig");
 
 const WeekSummary = struct {
     phase: []const u8,
@@ -28,10 +31,37 @@ pub const ValidationReport = struct {
     policy_rules: usize,
 };
 
+pub fn validateStoredAdjustment(allocator: std.mem.Allocator, storage: *const store.Store, proposed: plan_revision.RevisionFile) !void {
+    const context = proposed.provenance.adjustment orelse return;
+    if (context.policy_version != 3) return error.SupersededAdjustment;
+    const parent = storage.schedules.get(proposed.base_schedule_id) orelse return error.StaleRevision;
+    const original = parent.plan_provenance orelse return error.AdjustmentNeedsGeneratedPlan;
+    if (!try sameJson(allocator, original, context.parent.provenance) or
+        !try sameJson(allocator, parent.plan_weeks, context.parent.weeks)) return error.InvalidAdjustmentContext;
+    const restart = try date.parse(proposed.effective_from);
+    const observed = try interruption.observe(storage, context.parent, restart);
+    const returned = try interruption.validateStage(storage, context.parent.*, restart, context.stage, observed);
+    if (returned) |week| {
+        if (@abs(week.weekly_km - (context.returned_weekly_km orelse 0)) > 0.01 or
+            @abs(week.long_km - (context.returned_long_run_km orelse 0)) > 0.01) return error.InvalidAdjustmentContext;
+    } else if (context.returned_weekly_km != null or context.returned_long_run_km != null) return error.InvalidAdjustmentContext;
+    if (date.compare(observed.first, try date.parse(context.interruption_start)) != .eq or
+        observed.skipped != context.skipped_workouts or observed.repeat_week != context.repeat_source_week or
+        @abs(observed.weekly_km - context.observed_weekly_km) > 0.01 or
+        @abs(observed.peak_weekly_km - (context.observed_peak_weekly_km orelse 0)) > 0.01 or
+        @abs(observed.long_km - context.observed_long_run_km) > 0.01 or
+        @abs(observed.easy_km - context.familiar_easy_km) > 0.01 or
+        @abs(observed.repeat_km - context.repeat_weekly_km) > 0.01 or
+        @abs(observed.repeat_long_km - context.repeat_long_run_km) > 0.01) return error.InvalidAdjustmentContext;
+}
+
 pub fn validateEmbedded(
     allocator: std.mem.Allocator,
     revision: plan_revision.RevisionFile,
 ) !ValidationReport {
+    if (revision.provenance.adjustment) |context| {
+        return validateAdjustment(allocator, revision, context);
+    }
     const provenance = revision.provenance;
     try training_policy.validateSnapshot(provenance.training_policy);
     const result = try assessment.assess(
@@ -50,6 +80,173 @@ pub fn validateEmbedded(
         .workouts = revision.workouts.len,
         .policy_rules = provenance.training_policy.rules.len,
     };
+}
+
+fn sameJson(allocator: std.mem.Allocator, left: anytype, right: @TypeOf(left)) !bool {
+    const a = try std.json.Stringify.valueAlloc(allocator, left, .{});
+    defer allocator.free(a);
+    const b = try std.json.Stringify.valueAlloc(allocator, right, .{});
+    defer allocator.free(b);
+    return std.mem.eql(u8, a, b);
+}
+
+fn validateAdjustment(allocator: std.mem.Allocator, proposed: plan_revision.RevisionFile, context: plan_provenance.Adjustment) anyerror!ValidationReport {
+    if (context.policy_version != 3) return error.SupersededAdjustment;
+    if (!context.ready_to_resume or context.skipped_workouts < 2 or context.continuation != null or context.return_load_percent != null or
+        !std.mem.eql(u8, context.method, "friel-inspired") or
+        !std.mem.eql(u8, context.guidance_url, "https://joefrieltraining.com/missed-workouts/")) return error.InvalidAdjustmentContext;
+    for ([_]f64{ context.observed_weekly_km, context.observed_peak_weekly_km orelse 0, context.observed_long_run_km, context.familiar_easy_km, context.repeat_weekly_km, context.repeat_long_run_km }) |value| {
+        if (!std.math.isFinite(value) or value <= 0) return error.InvalidAdjustmentContext;
+    }
+    if (context.stage == .base) {
+        if (context.base_weeks < 1 or context.base_weeks > 4) return error.InvalidAdjustmentContext;
+    } else if (context.base_weeks != 0) return error.InvalidAdjustmentContext;
+    if (context.stage == .continuation) {
+        const volume = context.returned_weekly_km orelse return error.InvalidAdjustmentContext;
+        const long = context.returned_long_run_km orelse return error.InvalidAdjustmentContext;
+        if (!std.math.isFinite(volume) or !std.math.isFinite(long) or volume <= 0 or long <= 0 or long > volume) return error.InvalidAdjustmentContext;
+    } else if (context.returned_weekly_km != null or context.returned_long_run_km != null) return error.InvalidAdjustmentContext;
+    const parent = context.parent.*;
+    const original = (try interruption.originalPlan(context.parent)).*;
+    if (parent.workouts.len == 0 or parent.weeks.len != (parent.workouts.len + 6) / 7 or
+        context.repeat_source_week == 0 or context.repeat_source_week >= original.weeks.len) return error.InvalidAdjustmentContext;
+    _ = try validateEmbedded(allocator, parent);
+    const policy = parent.provenance.training_policy;
+    const repeat = original.weeks[context.repeat_source_week - 1];
+    const restart = try date.parse(context.restart_date);
+    const first = try date.parse(context.interruption_start);
+    if (date.compare(try date.parse(repeat.end_date), first) != .lt or
+        (!std.mem.eql(u8, repeat.phase, "build") and !std.mem.eql(u8, repeat.phase, "race_specific")) or
+        !std.mem.eql(u8, proposed.effective_from, context.restart_date)) return error.InvalidAdjustmentContext;
+    var expected_provenance = parent.provenance;
+    var race_source: runner_profile.Source = .user_entered;
+    if (std.mem.eql(u8, context.race_date_choice, "keep")) {
+        if (!std.mem.eql(u8, parent.race_date, proposed.race_date)) return error.InvalidAdjustmentContext;
+        race_source = parent.provenance.runner_profile.goal.race_date.source;
+    } else if (std.mem.eql(u8, context.race_date_choice, "flexible")) {
+        race_source = .derived;
+        if (date.compare(try targeted.flexibleDate(parent, context), try date.parse(proposed.race_date)) != .eq) return error.InvalidAdjustmentContext;
+    } else if (!std.mem.eql(u8, context.race_date_choice, "change")) return error.InvalidAdjustmentContext;
+    expected_provenance.runner_profile.goal.race_date = .{ .value = proposed.race_date, .source = race_source };
+    expected_provenance.adjustment = proposed.provenance.adjustment;
+    if (!std.mem.eql(u8, proposed.name, parent.name) or !std.mem.eql(u8, proposed.goal, parent.goal) or
+        !std.mem.eql(u8, proposed.availability, parent.availability) or
+        !std.mem.eql(u8, proposed.intensity_guidance, parent.intensity_guidance) or
+        !try sameJson(allocator, proposed.pace_profile, parent.pace_profile) or
+        !try sameJson(allocator, proposed.provenance, expected_provenance) or
+        !try sameJson(allocator, proposed.assessment, parent.assessment)) return error.InvalidAdjustmentContext;
+    const start = try date.parse(parent.workouts[0].date);
+    const race = try date.parse(proposed.race_date);
+    if ((context.stage != .base and date.weekday(restart) != 0) or date.compare(restart, start) != .gt or
+        date.compare(first, start) == .lt or date.compare(first, restart) != .lt or date.compare(restart, race) != .lt or
+        date.compare(restart, try date.parse(parent.race_date)) != .lt) return error.InvalidAdjustmentContext;
+    const expected = try targeted.build(allocator, parent, context, race);
+    if (!try sameJson(allocator, expected.workouts, proposed.workouts)) return error.AdjustmentContinuationChanged;
+    if (!try sameJson(allocator, expected.weeks, proposed.weeks)) return error.GeneratedWeeklySummaryMismatch;
+    if (!try sameJson(allocator, expected.changes, context.week_changes) or
+        !try sameJson(allocator, expected.omitted, context.omitted_source_weeks)) return error.InvalidAdjustmentContext;
+    // Check physiological planning bounds independently of the construction and
+    // mapping above. These remain product rules, not medical clearance.
+    var established_volume = @min(context.returned_weekly_km orelse context.repeat_weekly_km, repeat.target_core_distance_km);
+    var established_long = @min(context.returned_long_run_km orelse context.repeat_long_run_km, repeat.long_run_distance_km);
+    var reached_peak = established_volume;
+    var previous_volume = established_volume;
+    var race_specific_weeks: usize = 0;
+    var taper_weeks: usize = 0;
+    var race_count: usize = 0;
+    var loading_weeks: usize = 0;
+    var last_demanding: ?date.Date = null;
+    var taper_started = false;
+    const restart_index: usize = @intCast(@divFloor(date.daysBetween(start, restart), 7));
+    for (proposed.weeks, 0..) |week, index| {
+        if (index < restart_index) continue;
+        const change = context.week_changes[index - restart_index];
+        const is_base = change.stage == .base;
+        const is_race = std.mem.eql(u8, week.phase, "race");
+        const is_taper = std.mem.eql(u8, week.phase, "taper");
+        const is_recovery = std.mem.eql(u8, week.phase, "recovery");
+        var total: f64 = 0;
+        var long: f64 = 0;
+        var optional: f64 = 0;
+        var quality: f64 = 0;
+        var quality_count: usize = 0;
+        for (proposed.workouts[index * 7 .. @min((index + 1) * 7, proposed.workouts.len)]) |item| {
+            try plan_revision.validateWorkout(item);
+            const target = try date.parse(item.date);
+            const role = (item.decision orelse return error.RevisionWorkoutDecisionRequired).allocation_role;
+            const km = targeted.distance(item);
+            if (role == .optional_recovery) optional += km else total += km;
+            if (role == .long_run) long += km;
+            if (date.compare(target, restart) == .lt) continue;
+            if (is_base and role != .easy and role != .rest) return error.AdjustmentBaseMustBeEasy;
+            if (is_base and role == .easy) {
+                if (km > context.familiar_easy_km + 0.01 or item.decision.?.pace_method != .effort_only) return error.AdjustmentBaseMustBeEasy;
+                for (item.segments) |segment| {
+                    if (segment.pace_fast_seconds_per_km != null or segment.pace_slow_seconds_per_km != null) return error.AdjustmentBaseMustBeEasy;
+                }
+            }
+            if (role == .quality) {
+                quality += km;
+                quality_count += 1;
+                const support = if (is_taper) policy.quality_progression.minimum_taper_warmup_cooldown_km else policy.quality_progression.minimum_warmup_cooldown_km;
+                if (item.segments.len != 3 or (item.segments[0].distance_km orelse 0) + 0.01 < support or
+                    (item.segments[2].distance_km orelse 0) + 0.01 < support) return error.GeneratedQualityProgressionDecisionInvalid;
+                if (km > week.target_core_distance_km * policy.quality_progression.maximum_weekly_distance_fraction + 0.01 or
+                    km > policy.quality_progression.maximum_session_distance_km + 0.01) return error.GeneratedQualitySessionTooLong;
+            }
+            if (role == .race) {
+                race_count += 1;
+                if (date.compare(target, race) != .eq or change.distance_fraction != 1) return error.GeneratedRaceOnWrongDate;
+            }
+            if (role != .rest) {
+                if (isUnavailable(parent.provenance.runner_profile, item.date)) return error.GeneratedWorkoutOnUnavailableDate;
+                const weekday: runner_profile.Weekday = @enumFromInt(date.weekday(target));
+                if (role != .race and role != .optional_recovery and !containsWeekday(parent.provenance.runner_profile.availability.running_days.value, weekday)) return error.GeneratedWorkoutOutsideAvailability;
+            }
+            if (role == .quality or role == .long_run or role == .race) {
+                if (last_demanding) |prior| {
+                    if (date.daysBetween(prior, target) - 1 < policy.scheduling.minimum_easy_or_rest_days_between_demanding_sessions) return error.GeneratedDemandingSessionsTooClose;
+                }
+                last_demanding = target;
+            }
+        }
+        if (@abs(total - week.target_core_distance_km) > 0.01 or @abs(long - week.long_run_distance_km) > 0.01) return error.GeneratedWeeklySummaryMismatch;
+        if (is_base) continue;
+        if (optional > total * policy.optional_run.maximum_weekly_distance_fraction + 0.01 or quality_count > policy.intensity_distribution.maximum_quality_sessions_per_week) return error.GeneratedIntensityDistributionInvalid;
+        if (!is_race) {
+            if (total <= 0 or long > total * policy.long_run.maximum_weekly_distance_fraction + 0.01 or long > policy.long_run.maximum_peak_distance_km + 0.01) return error.GeneratedLongRunShareTooHigh;
+            const low = 1 - quality / total;
+            if (low + 0.01 < policy.intensity_distribution.minimum_low_intensity_fraction or low - 0.01 > policy.intensity_distribution.maximum_low_intensity_fraction) return error.GeneratedIntensityDistributionInvalid;
+            if (total > parent.provenance.runner_profile.baseline.average_weekly_distance_km.value * policy.volume_progression.maximum_peak_relative_to_baseline + 0.01) return error.GeneratedWeeklyVolumeAbovePeak;
+        }
+        if (is_taper) {
+            taper_started = true;
+            taper_weeks += 1;
+            const reduction = 1 - total / reached_peak;
+            if (reduction + 0.01 < policy.taper.minimum_volume_reduction_fraction or reduction - 0.01 > policy.taper.maximum_volume_reduction_fraction or
+                (policy.taper.maintain_intensity and quality_count == 0)) return error.GeneratedTaperVolumeInvalid;
+        } else if (!is_race) {
+            if (taper_started) return error.GeneratedTaperLengthInvalid;
+            if (total > established_volume * (1 + policy.volume_progression.maximum_build_increase_fraction) + 0.01 or
+                long > established_long + policy.long_run.maximum_weekly_increase_km + 0.01) return error.AdjustmentReturnLoadExceeded;
+            if (is_recovery) {
+                loading_weeks = 0;
+                const fraction = total / previous_volume;
+                if (fraction + 0.01 < policy.recovery.minimum_volume_fraction or fraction - 0.01 > policy.recovery.maximum_volume_fraction) return error.GeneratedRecoveryVolumeInvalid;
+            } else {
+                loading_weeks += 1;
+                if (loading_weeks > policy.recovery.maximum_build_weeks_between_recovery) return error.AdjustmentRaceDateTooClose;
+            }
+            established_volume = @max(established_volume, total);
+            established_long = @max(established_long, long);
+            reached_peak = @max(reached_peak, total);
+            previous_volume = total;
+        }
+        if (std.mem.eql(u8, week.phase, "race_specific")) race_specific_weeks += 1;
+    }
+    if (race_count != 1 or race_specific_weeks < policy.periodization.minimum_race_specific_weeks or
+        taper_weeks * 7 < policy.taper.minimum_days or taper_weeks * 7 > policy.taper.maximum_days) return error.AdjustmentRaceDateTooClose;
+    return .{ .weeks = proposed.weeks.len, .workouts = proposed.workouts.len, .policy_rules = policy.rules.len };
 }
 
 pub fn validate(

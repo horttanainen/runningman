@@ -585,6 +585,23 @@ When information is insufficient, missing workout dates and types appear
 directly below the recommendation. Missing Oura dates are listed separately
 with the number of additional check-ins required to meet each coverage rule.
 
+For a sickness-related `REPLAN` on a generated road-distance plan, the review
+also prints the next `plan adjust` command. It preserves the selected executable
+and data path, and suggests a start after any logged training on or after the
+review date. The readiness flag is your confirmation, not inferred from Oura;
+the adjustment asks whether the target date can move and only creates a proposal.
+Preview and explicit application remain separate steps.
+
+Once a return plan is applied, `review` shows its selected stage and dated
+checkpoint instead of suggesting a fresh adjustment for the old sickness skips.
+For example, an aerobic-return week starting September 7 has a September 13
+checkpoint before a possible September 14 repeat week. The report explains
+what to assess and prints the commands for advancing or extending the stage,
+including explicit application of the chosen proposal. Missing data or current
+reduction signals block those stage-change instructions. The checkpoint also
+appears after generation/application and in daily workout views. It is a
+scheduling reminder, not an automatic assessment of recovery.
+
 Show daily plan versus reality:
 
 ```sh
@@ -708,6 +725,39 @@ review resolves those activities against that older workout. Only the
 remaining program changes; the historical schedule is not rewritten.
 
 ## Revise the remaining program
+
+For a sickness interruption, create a Friel-inspired return proposal:
+
+```sh
+./zig-out/bin/runningman plan adjust --from 2026-09-07 \
+  --ready-to-resume --output return-plan.json
+```
+
+The command asks whether your target date is **movable or fixed**. There is no
+assumed race-date constraint. For unattended use, specify
+`--race-date flexible|keep|YYYY-MM-DD`.
+
+The default aerobic-return stage contains only easy, effort-based runs and
+rest. It uses familiar completed running, then projects a repeat of your last
+completed loading week followed by its original progression. With a movable
+target, no weeks from that progression are discarded. With a fixed date, any
+omissions are listed explicitly and the remaining structure is validated.
+
+Later stages remain provisional until you confirm your response in a new
+adjustment: `--stage repeat` means easy running/recovery feel normal;
+`--stage continuation` means the logged repeated loading week went well.
+The calendar never advances stages automatically. `--base-weeks 1-4` changes
+the provisional calendar estimate, not a mandatory recovery duration.
+
+Base returns can start midweek. If today's run is already logged, choose a
+later `--from` date to preserve it. Repeat/continuation stages start on Mondays.
+The initial adjustment needs a complete `REPLAN` review and
+`--ready-to-resume`; this is your statement, not medical clearance from Oura.
+Original history, baseline evidence and the race prescription are preserved.
+Old percentage-cap proposals (v1/v2) must be regenerated into a new file.
+
+See [interruption adjustment policy](docs/interruption-adjustment.md) for the
+coaching source, explicit implementation assumptions, stage workflow and limits.
 
 A revision targets the current schedule ID, so an older AI response cannot
 silently overwrite a newer program. Previewing is read-only:

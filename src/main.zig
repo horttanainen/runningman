@@ -6,18 +6,21 @@ const date = @import("date.zig");
 const evidence_ledger = @import("evidence_ledger.zig");
 const model = @import("model.zig");
 const plan_explanation = @import("plan_explanation.zig");
+const plan_adjustment = @import("plan_adjustment.zig");
 const plan_generator = @import("plan_generator.zig");
 const plan_markdown = @import("plan_markdown.zig");
 const plan_provenance = @import("plan_provenance.zig");
 const plan_revision = @import("plan_revision.zig");
 const plan_validator = @import("plan_validator.zig");
 const report = @import("report.zig");
+const return_guidance = @import("return_guidance.zig");
 const runner_profile = @import("runner_profile.zig");
 const schedule = @import("schedule.zig");
 const sickness = @import("sickness.zig");
 const store = @import("store.zig");
 const training_policy = @import("training_policy.zig");
 const training_review = @import("training_review.zig");
+const targeted_adjustment = @import("targeted_adjustment.zig");
 const workout_detail = @import("workout.zig");
 
 const Io = std.Io;
@@ -111,7 +114,7 @@ fn run(
         return;
     }
     if (std.mem.eql(u8, command, "init")) {
-        try commandInit(allocator, io, writer, data_path, command_args);
+        try commandInit(allocator, io, writer, args[0], data_path, command_args);
         return;
     }
     if (std.mem.eql(u8, command, "profile")) {
@@ -139,7 +142,7 @@ fn run(
 
     if (try date.maybeParseReference(command)) |target_date| {
         if (command_args.len != 0) return error.UnexpectedArgument;
-        try printDay(writer, &storage, target_date);
+        try printDay(allocator, writer, args[0], data_path, &storage, target_date);
     } else if (std.mem.eql(u8, command, "log")) {
         try commandLog(allocator, io, reader, writer, data_path, &storage, command_args);
     } else if (std.mem.eql(u8, command, "check-in")) {
@@ -151,11 +154,11 @@ fn run(
     } else if (std.mem.eql(u8, command, "compare")) {
         try commandCompare(writer, &storage, command_args);
     } else if (std.mem.eql(u8, command, "plan")) {
-        try commandPlan(allocator, io, writer, data_path, &storage, command_args);
+        try commandPlan(allocator, io, reader, writer, args[0], data_path, &storage, command_args);
     } else if (std.mem.eql(u8, command, "export")) {
         try commandExport(allocator, io, writer, data_path, &storage, command_args);
     } else if (std.mem.eql(u8, command, "review")) {
-        try commandReview(allocator, io, reader, writer, data_path, &storage, command_args);
+        try commandReview(allocator, io, reader, writer, args[0], data_path, &storage, command_args);
     } else {
         return error.UnknownCommand;
     }
@@ -256,6 +259,7 @@ fn commandInit(
     allocator: std.mem.Allocator,
     io: Io,
     writer: *Io.Writer,
+    executable: []const u8,
     data_path: []const u8,
     args: []const []const u8,
 ) !void {
@@ -282,7 +286,7 @@ fn commandInit(
     try store.load(&initialized, allocator, io, data_path);
     if (store.currentWorkout(&initialized, date.today()) != null) {
         try writer.writeAll("Today's schedule:\n");
-        try printDay(writer, &initialized, date.today());
+        try printDay(allocator, writer, executable, data_path, &initialized, date.today());
     }
 }
 
@@ -470,7 +474,9 @@ fn commandCompare(
 fn commandPlan(
     allocator: std.mem.Allocator,
     io: Io,
+    reader: *Io.Reader,
     writer: *Io.Writer,
+    executable: []const u8,
     data_path: []const u8,
     storage: *const store.Store,
     args: []const []const u8,
@@ -504,6 +510,10 @@ fn commandPlan(
         try commandPlanGenerate(allocator, io, writer, data_path, storage, args[1..]);
         return;
     }
+    if (std.mem.eql(u8, action, "adjust")) {
+        try commandPlanAdjust(allocator, io, reader, writer, .{ .executable = executable, .data_path = data_path }, storage, args[1..]);
+        return;
+    }
     if (std.mem.eql(u8, action, "explain")) {
         try commandPlanExplain(allocator, io, writer, storage, args[1..]);
         return;
@@ -516,6 +526,7 @@ fn commandPlan(
     if (args.len != 2) return error.PlanFileRequired;
     const revision = try plan_revision.load(allocator, io, args[1]);
     try plan_revision.validate(storage, revision);
+    try plan_validator.validateStoredAdjustment(allocator, storage, revision);
     const validation = try plan_validator.validateEmbedded(allocator, revision);
     if (std.mem.eql(u8, action, "preview")) {
         try writer.print(
@@ -540,6 +551,90 @@ fn commandPlan(
     } else {
         return error.UnknownPlanAction;
     }
+    if (revision.provenance.adjustment) |context| {
+        try return_guidance.printReminder(allocator, writer, .{ .executable = executable, .data_path = data_path }, context, date.today(), try plan_adjustment.suggestedRestart(storage, date.today()));
+    }
+}
+
+fn commandPlanAdjust(allocator: std.mem.Allocator, io: Io, reader: *Io.Reader, writer: *Io.Writer, commands: return_guidance.Commands, storage: *const store.Store, args: []const []const u8) !void {
+    var restart: ?date.Date = null;
+    var race: ?date.Date = null;
+    var ready = false;
+    var choice: ?plan_adjustment.RaceChoice = null;
+    var stage: plan_provenance.ReturnStage = .base;
+    var base_weeks: u8 = 1;
+    var base_weeks_set = false;
+    var output: ?[]const u8 = null;
+    var index: usize = 0;
+    while (index < args.len) {
+        const flag = args[index];
+        index += 1;
+        if (std.mem.eql(u8, flag, "--ready-to-resume")) {
+            ready = true;
+            continue;
+        }
+        if (std.mem.eql(u8, flag, "--return-load-percent")) return error.SupersededReturnLoad;
+        if (index == args.len) return error.MissingFlagValue;
+        const value = args[index];
+        index += 1;
+        if (std.mem.eql(u8, flag, "--from")) {
+            restart = try date.parseReference(value);
+        } else if (std.mem.eql(u8, flag, "--race-date")) {
+            if (choice != null) return error.DuplicateRaceChoice;
+            if (std.mem.eql(u8, value, "flexible")) {
+                choice = .flexible;
+            } else if (std.mem.eql(u8, value, "keep")) {
+                choice = .keep;
+            } else {
+                race = try date.parse(value);
+                choice = .change;
+            }
+        } else if (std.mem.eql(u8, flag, "--stage")) {
+            stage = std.meta.stringToEnum(plan_provenance.ReturnStage, value) orelse return error.InvalidReturnStage;
+        } else if (std.mem.eql(u8, flag, "--base-weeks")) {
+            base_weeks = std.fmt.parseInt(u8, value, 10) catch return error.InvalidBaseWeeks;
+            base_weeks_set = true;
+        } else if (std.mem.eql(u8, flag, "--output")) {
+            output = value;
+        } else return error.UnknownFlag;
+    }
+    const from = restart orelse return error.AdjustmentRestartRequired;
+    const destination = output orelse return error.PlanGenerationOutputRequired;
+    if (!ready) return error.AdjustmentReadinessRequired;
+    if (base_weeks < 1 or base_weeks > 4 or (base_weeks_set and stage != .base)) return error.InvalidBaseWeeks;
+    if (choice == null) {
+        const parent = storage.schedules.get(storage.max_schedule_id) orelse return error.NotInitialized;
+        try writer.print("Current target date: {s}\n", .{parent.race_date});
+        while (choice == null) {
+            const answer = prompt(allocator, reader, writer, "Can the target date move, or is there a fixed race? [movable/fixed]: ") catch |err| switch (err) {
+                error.EndOfInput => return error.AdjustmentRaceChoiceRequired,
+                else => return err,
+            };
+            if (std.ascii.eqlIgnoreCase(answer, "movable") or std.ascii.eqlIgnoreCase(answer, "flexible")) {
+                choice = .flexible;
+            } else if (std.ascii.eqlIgnoreCase(answer, "fixed") or std.ascii.eqlIgnoreCase(answer, "keep")) {
+                choice = .keep;
+            } else try writer.writeAll("Please choose movable or fixed; no date choice has been assumed.\n");
+        }
+    }
+    // Refuse to overwrite any existing file, including the training log.
+    const proposal = try plan_adjustment.generate(allocator, storage, .{
+        .restart = from,
+        .race_date = race,
+        .race_choice = choice,
+        .ready = ready,
+        .stage = stage,
+        .base_weeks = base_weeks,
+    });
+    const file = try Io.Dir.cwd().createFile(io, destination, .{ .exclusive = true });
+    defer file.close(io);
+    var buffer: [4096]u8 = undefined;
+    var file_writer: Io.File.Writer = .init(file, io, &buffer);
+    try std.json.Stringify.value(proposal, .{ .whitespace = .indent_2, .emit_null_optional_fields = false }, &file_writer.interface);
+    try file_writer.flush();
+    try writer.print("Created adjustment proposal: {s}\n{s}\n", .{ destination, proposal.reason });
+    try plan_revision.printPreview(writer, storage, proposal);
+    try return_guidance.printReminder(allocator, writer, commands, proposal.provenance.adjustment.?, date.today(), try plan_adjustment.suggestedRestart(storage, date.today()));
 }
 
 fn commandPlanMarkdown(
@@ -738,6 +833,7 @@ fn commandReview(
     io: Io,
     reader: *Io.Reader,
     writer: *Io.Writer,
+    executable: []const u8,
     data_path: []const u8,
     storage: *const store.Store,
     args: []const []const u8,
@@ -746,6 +842,7 @@ fn commandReview(
         var snapshot = try training_review.evaluateSnapshot(storage, date.today());
         try confirmPainImpact(allocator, reader, writer, &snapshot);
         try training_review.printStatus(writer, storage, snapshot);
+        try printReviewNextStep(allocator, writer, executable, data_path, storage, snapshot);
         return;
     }
     if (args.len == 2 and std.mem.eql(u8, args[0], "--as-of")) {
@@ -753,6 +850,7 @@ fn commandReview(
         var snapshot = try training_review.evaluateSnapshot(storage, as_of);
         try confirmPainImpact(allocator, reader, writer, &snapshot);
         try training_review.printStatus(writer, storage, snapshot);
+        try printReviewNextStep(allocator, writer, executable, data_path, storage, snapshot);
         return;
     }
     if (std.mem.eql(u8, args[0], "report")) {
@@ -760,6 +858,45 @@ fn commandReview(
         return;
     }
     return error.InvalidReviewCommand;
+}
+
+fn printReviewNextStep(
+    allocator: std.mem.Allocator,
+    writer: *Io.Writer,
+    executable: []const u8,
+    data_path: []const u8,
+    storage: *const store.Store,
+    snapshot: training_review.Snapshot,
+) !void {
+    const state: return_guidance.ReviewState = switch (snapshot.result.classification) {
+        .reduce => .reduce,
+        .insufficient_data => .missing_data,
+        else => .clear,
+    };
+    if (try return_guidance.printReview(allocator, writer, .{ .executable = executable, .data_path = data_path }, storage, snapshot.as_of, state)) return;
+    if (snapshot.result.classification != .replan) return;
+    if (snapshot.result.inputs.sickness_skips < 2) return;
+    const active = storage.schedules.get(storage.max_schedule_id) orelse return error.NotInitialized;
+    const provenance = active.plan_provenance orelse return;
+    if (runner_profile.trainingLoadBasis(provenance.runner_profile) != .distance or
+        runner_profile.surface(provenance.runner_profile) == .trail) return;
+    const restart = try plan_adjustment.suggestedRestart(storage, snapshot.as_of);
+    if (date.compare(restart, try date.parse(active.start_date)) != .gt or
+        date.compare(restart, try date.parse(active.race_date)) != .lt) return;
+    const from = try date.format(allocator, restart);
+    try writer.writeAll("\nNext step: create an adjustment proposal\n");
+    try writer.writeAll("When the illness has ended and you feel ready to resume, run:\n  ");
+    try return_guidance.printShellArgument(writer, executable);
+    if (!std.mem.eql(u8, data_path, default_data_path)) {
+        try writer.writeAll(" --data ");
+        try return_guidance.printShellArgument(writer, data_path);
+    }
+    try writer.print(" plan adjust --from {s} --ready-to-resume --output adjusted-plan-{s}.json\n", .{ from, from });
+    if (date.compare(restart, snapshot.as_of) == .gt) {
+        try writer.print("The suggested start is {s} to leave all logged training unchanged.\n", .{from});
+    }
+    try writer.writeAll("--ready-to-resume is your confirmation, not clearance inferred from Oura.\n");
+    try writer.writeAll("The command asks whether the target date can move. It creates a proposal only; applying it remains a separate, explicit step. Use an unused output filename.\n");
 }
 
 fn confirmPainImpact(
@@ -818,11 +955,24 @@ fn exportJsonl(
     try writer.writeAll(contents);
 }
 
-fn printDay(writer: *Io.Writer, storage: *const store.Store, target_date: date.Date) !void {
+fn printDay(allocator: std.mem.Allocator, writer: *Io.Writer, executable: []const u8, data_path: []const u8, storage: *const store.Store, target_date: date.Date) !void {
     const active_schedule = store.effectiveSchedule(storage, target_date) orelse
         return error.NoScheduleForDate;
     const planned = store.workoutForDate(storage, active_schedule.id, target_date) orelse
         return error.NoWorkoutForDate;
+
+    if (active_schedule.plan_provenance) |provenance| {
+        if (provenance.adjustment) |context| {
+            if (try targeted_adjustment.pendingStage(context, target_date)) |stage| {
+                if (store.latestActivityForDate(storage, target_date) == null) {
+                    try writer.print("{s}: provisional {s} stage, not yet confirmed.\n", .{ planned.date, @tagName(stage) });
+                    try writer.writeAll("The calendar does not advance the return progression. Confirm normal easy-running response before repeating the loading week, and a successful repeated week before continuation. Create a response-confirmed adjustment; until then these later prescriptions remain a forecast.\n");
+                    try printDayReturnGuidance(allocator, writer, executable, data_path, storage, target_date);
+                    return;
+                }
+            }
+        }
+    }
 
     try writer.print(
         "{s}, {s} — week {d}, {s} phase\n{s}\nIntensity: {s}",
@@ -868,6 +1018,15 @@ fn printDay(writer: *Io.Writer, storage: *const store.Store, target_date: date.D
             .{planned.date},
         );
     }
+    try printDayReturnGuidance(allocator, writer, executable, data_path, storage, target_date);
+}
+
+fn printDayReturnGuidance(allocator: std.mem.Allocator, writer: *Io.Writer, executable: []const u8, data_path: []const u8, storage: *const store.Store, target_date: date.Date) !void {
+    const latest = storage.schedules.get(storage.max_schedule_id) orelse return error.NotInitialized;
+    const source = latest.plan_provenance orelse return;
+    const context = source.adjustment orelse return;
+    if (date.compare(target_date, try date.parse(context.interruption_start)) == .lt) return;
+    try return_guidance.printReminder(allocator, writer, .{ .executable = executable, .data_path = data_path }, context, target_date, try plan_adjustment.suggestedRestart(storage, target_date));
 }
 
 fn parseLogCommand(args: []const []const u8) !LogCommand {
@@ -1135,6 +1294,7 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman plan assess RUNNER_PROFILE.json [--policy POLICY.json] [--evidence EVIDENCE_LEDGER.json]
         \\  runningman [--data PATH] plan generate RUNNER_PROFILE.json --output PROPOSED_PLAN.json [--policy POLICY.json] [--evidence EVIDENCE_LEDGER.json]
         \\  runningman [--data PATH] plan preview REVISION.json
+        \\  runningman [--data PATH] plan adjust --from DATE --ready-to-resume --output REVISION.json [--race-date flexible|keep|DATE] [--stage base|repeat|continuation] [--base-weeks 1-4]
         \\  runningman [--data PATH] plan apply REVISION.json
         \\  runningman [--data PATH] plan markdown [REVISION.json] [--output TRAINING_PLAN.md]
         \\  runningman [--data PATH] plan explain [DATE_REFERENCE|REVISION.json [DATE_REFERENCE]]
@@ -1160,6 +1320,32 @@ fn printUsage(writer: *Io.Writer) !void {
 
 fn friendlyError(err: anyerror) []const u8 {
     return switch (err) {
+        error.AdjustmentRestartRequired => "plan adjust requires --from YYYY-MM-DD",
+        error.AdjustmentReadinessRequired => "confirm the illness has ended and you are ready to resume with --ready-to-resume; current constraints require individual review",
+        error.AdjustmentLoadingRestartMustBeMonday => "repeat and continuation stages start on Monday; an aerobic base return can start midweek",
+        error.AdjustmentRaceChoiceRequired => "choose whether the date can move: answer movable/fixed, or pass --race-date flexible|keep|YYYY-MM-DD; no proposal was created",
+        error.DuplicateRaceChoice => "specify --race-date only once",
+        error.InvalidBaseWeeks => "--base-weeks must be 1-4 and is only valid with --stage base; this is a forecast, not a required recovery duration",
+        error.InvalidReturnStage => "--stage must be base, repeat (easy running feels normal), or continuation (repeated loading week went well)",
+        error.SupersededReturnLoad => "the percentage-cap method has been replaced by an easy-only, response-based return; --return-load-percent is no longer supported",
+        error.AdjustmentCompletedLoadingWeekRequired => "need a completed pre-illness build or race-specific week with running distances and familiar easy runs to anchor the restart",
+        error.AdjustmentReturnRunRequired => "log a completed return run before confirming the repeat stage; --stage repeat states that easy-running effort and recovery feel normal",
+        error.AdjustmentRepeatedWeekRequired => "continuation needs a fully logged repeated loading week; --stage continuation confirms that week went well",
+        error.AdjustmentTargetBeyondContinuation => "the chosen date is later than this continuation needs; use --race-date flexible or design an additional training block explicitly",
+        error.AdjustmentBaseMustBeEasy => "the aerobic return stage must contain only effort-based easy runs and rest",
+        error.AdjustmentNeedsGeneratedPlan => "adjustment requires an applied generated plan with provenance",
+        error.AdjustmentRoadDistanceOnly => "this adjustment increment supports road distance-based plans; trail and duration-based adjustments need their own return policy",
+        error.InvalidAdjustmentRestart => "restart must be after plan start and before the current race date",
+        error.AdjustmentWouldReplaceLoggedWorkout => "restart would replace a date with an existing activity; choose a date after recorded training",
+        error.AdjustmentRequiresReplan => "adjustment requires a complete REPLAN review; resolve missing data or current reduction signals first",
+        error.AdjustmentNeedsSicknessInterruption => "adjustment needs at least two sickness-related skipped core workouts in the review window",
+        error.AdjustmentBaselineIncomplete => "adjustment needs complete core outcomes and running distances before the interruption, including a completed long run",
+        error.AdjustmentRaceDateTooClose => "the chosen race date leaves too little room for this return policy, race-specific work, and taper; no proposal was created and no date was changed",
+        error.AdjustmentRaceWeekdayChanged => "targeted adjustment preserves workout weekdays; choose a race date on the original race weekday",
+        error.AdjustmentRaceDateTooFar => "the requested race date exceeds the supported 24-week plan span",
+        error.SupersededAdjustment => "this proposal uses a superseded adjustment policy; regenerate it with plan adjust into a new file",
+        error.AdjustmentNoFeasibleCandidate => "no continuation fits the observed running and progression limits; individual adjustment is needed",
+        error.InvalidAdjustmentContext, error.AdjustmentContinuationChanged, error.AdjustmentReturnLoadExceeded => "adjustment context or prescriptions no longer satisfy the source-plan mapping and return limits",
         error.InvalidSicknessCommand => "use log --sick --from YYYY-MM-DD --through YYYY-MM-DD [--dry-run] without other activity flags",
         error.InvalidSicknessRange => "sickness --from must be on or before --through",
         error.FutureSicknessDate => "sickness dates cannot be in the future",

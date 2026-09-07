@@ -5,6 +5,7 @@ const plan_revision = @import("plan_revision.zig");
 const store = @import("store.zig");
 const training_policy = @import("training_policy.zig");
 const workout = @import("workout.zig");
+const targeted_adjustment = @import("targeted_adjustment.zig");
 
 const Io = std.Io;
 
@@ -47,6 +48,9 @@ pub fn printProposal(writer: *Io.Writer, revision: plan_revision.RevisionFile) !
         revision.intensity_guidance,
         revision.pace_profile,
     );
+    if (revision.provenance.adjustment) |context| {
+        try writer.print("**Provisional target date, not a recovery prediction.** Friel-inspired return; current stage: {s}. The aerobic-return calendar estimate is not a mandatory duration. Later stages require response confirmation.\n\n", .{@tagName(context.stage)});
+    }
     try printOverview(writer, revision.weeks, effective_from);
 
     var previous_week: ?u8 = null;
@@ -66,6 +70,11 @@ pub fn printProposal(writer: *Io.Writer, revision: plan_revision.RevisionFile) !
                 week,
             );
             previous_week = week_number;
+        }
+        if (revision.provenance.adjustment) |context| {
+            if (try targeted_adjustment.pendingStage(context, workout_date)) |stage| {
+                try writer.print("**Provisional {s} stage — requires a response-confirmed adjustment before use.**\n\n", .{@tagName(stage)});
+            }
         }
         try printWorkout(writer, proposedWorkout(proposed, workout_date, week_number));
     }
@@ -93,6 +102,9 @@ pub fn printSchedule(
         schedule.intensity_guidance,
         schedule.pace_profile,
     );
+    if (provenance.adjustment) |context| {
+        try writer.print("**Return-adjusted target date, not a performance prediction.** Current stage: {s}. Later stages require response confirmation; source-week details are retained context.\n\n", .{@tagName(context.stage)});
+    }
     try printOverview(writer, schedule.plan_weeks, plan_start);
 
     var previous_week: ?u8 = null;
@@ -109,6 +121,11 @@ pub fn printSchedule(
                 week,
             );
             previous_week = planned.week;
+        }
+        if (provenance.adjustment) |context| {
+            if (try targeted_adjustment.pendingStage(context, current)) |stage| {
+                try writer.print("**Provisional {s} stage — requires a response-confirmed adjustment before use.**\n\n", .{@tagName(stage)});
+            }
         }
         try printWorkout(writer, planned);
     }

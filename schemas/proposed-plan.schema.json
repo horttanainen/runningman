@@ -87,7 +87,192 @@
         "evidence_ledger_sha256": { "$ref": "#/$defs/sha256" },
         "runner_profile": { "$ref": "runner-profile.schema.json" },
         "training_policy": { "$ref": "training-policy.schema.json" },
-        "assessment": { "$ref": "#/$defs/assessment" }
+        "assessment": { "$ref": "#/$defs/assessment" },
+        "adjustment": { "$ref": "#/$defs/adjustment" }
+      }
+    },
+    "adjustment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_version",
+        "restart_date",
+        "interruption_start",
+        "skipped_workouts",
+        "ready_to_resume",
+        "observed_weekly_km",
+        "observed_peak_weekly_km",
+        "observed_long_run_km",
+        "race_date_choice",
+        "parent",
+        "week_changes",
+        "method",
+        "guidance_url",
+        "stage",
+        "base_weeks",
+        "repeat_source_week",
+        "repeat_weekly_km",
+        "repeat_long_run_km",
+        "familiar_easy_km",
+        "omitted_source_weeks"
+      ],
+      "properties": {
+        "policy_version": {
+          "const": 3
+        },
+        "restart_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "interruption_start": {
+          "type": "string",
+          "format": "date"
+        },
+        "skipped_workouts": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "ready_to_resume": {
+          "const": true
+        },
+        "observed_weekly_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "observed_peak_weekly_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "observed_long_run_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "race_date_choice": {
+          "enum": [
+            "flexible",
+            "keep",
+            "change"
+          ]
+        },
+        "parent": {
+          "$ref": "#"
+        },
+        "week_changes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/adjustment_week"
+          }
+        },
+        "method": {
+          "const": "friel-inspired"
+        },
+        "guidance_url": {
+          "const": "https://joefrieltraining.com/missed-workouts/"
+        },
+        "stage": {
+          "enum": [
+            "base",
+            "repeat",
+            "continuation"
+          ]
+        },
+        "base_weeks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "repeat_source_week": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24
+        },
+        "repeat_weekly_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "repeat_long_run_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "familiar_easy_km": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "returned_weekly_km": { "type": "number", "exclusiveMinimum": 0 },
+        "returned_long_run_km": { "type": "number", "exclusiveMinimum": 0 },
+        "omitted_source_weeks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 24
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage": {
+                "const": "base"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "base_weeks": {
+                "minimum": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "base_weeks": {
+                "const": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "adjustment_week": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "week",
+        "source_week",
+        "distance_fraction",
+        "reason",
+        "stage"
+      ],
+      "properties": {
+        "week": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24
+        },
+        "source_week": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24
+        },
+        "distance_fraction": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "reason": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "stage": {
+          "enum": [
+            "base",
+            "repeat",
+            "continuation"
+          ]
+        }
       }
     },
     "assessment": {
@@ -153,7 +338,7 @@
         "baseline_weekly_distance_km": { "type": "number", "minimum": 0 },
         "baseline_weekly_distance_source": { "$ref": "#/$defs/source" },
         "volume_method": {
-          "enum": ["baseline", "build_progression", "recovery_reduction", "race_specific_progression", "taper_reduction", "race_week"]
+          "enum": ["baseline", "aerobic_return", "build_progression", "recovery_reduction", "race_specific_progression", "taper_reduction", "race_week"]
         },
         "previous_progression_distance_km": { "type": "number", "minimum": 0 },
         "applied_volume_fraction": { "type": "number", "minimum": 0 },

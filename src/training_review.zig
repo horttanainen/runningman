@@ -254,12 +254,17 @@ pub fn printStatus(writer: *Io.Writer, storage: *const store.Store, snapshot: Sn
         policy_version,
     });
 
-    try writer.print("Recommendation: {s}\n{s}\n", .{
-        classificationName(snapshot.result.classification),
-        recommendationText(snapshot.result.classification),
-    });
+    const addressed = try historicalDisruptionAddressed(storage, snapshot);
+    if (snapshot.result.classification == .replan and addressed) {
+        try writer.writeAll("Current action: follow the applied return plan and its checkpoint.\nHistorical review signal: REPLAN; the earlier interruption already has an applied adjustment.\n");
+    } else {
+        try writer.print("Recommendation: {s}\n{s}\n", .{
+            classificationName(snapshot.result.classification),
+            recommendationText(snapshot.result.classification),
+        });
+    }
     try printCoverageGaps(writer, storage, snapshot);
-    try printReplanContext(writer, snapshot.result);
+    try printReplanContext(writer, snapshot.result, addressed);
 
     try writer.writeAll("\nProgress to date (since ");
     try printDate(writer, snapshot.progress_start);
@@ -351,7 +356,30 @@ pub fn printStatus(writer: *Io.Writer, storage: *const store.Store, snapshot: Sn
     );
 }
 
-fn printReplanContext(writer: *Io.Writer, result: Result) !void {
+fn historicalDisruptionAddressed(storage: *const store.Store, snapshot: Snapshot) !bool {
+    const latest = storage.schedules.get(storage.max_schedule_id) orelse return false;
+    const source = latest.plan_provenance orelse return false;
+    var context = source.adjustment orelse return false;
+    if (context.policy_version != 3) return false;
+    var depth: usize = 0;
+    while (context.parent.provenance.adjustment) |previous| {
+        depth += 1;
+        if (depth > 24) return error.InvalidAdjustmentContext;
+        context = previous;
+    }
+    const restart = try date.parse(context.restart_date);
+    if (date.compare(snapshot.as_of, restart) == .lt) return false;
+    var current = laterDate(restart, snapshot.decision_start);
+    while (date.compare(current, snapshot.closed_activity_end) != .gt) : (current = date.addDays(current, 1)) {
+        const logged = store.latestActivityForDate(storage, current) orelse continue;
+        const workout = workoutForObservation(storage, current, logged) orelse continue;
+        if (!isCoreRun(workout)) continue;
+        if (logged.status == .modified or logged.status == .skipped or logged.status == .rested) return false;
+    }
+    return true;
+}
+
+fn printReplanContext(writer: *Io.Writer, result: Result, addressed: bool) !void {
     if (!result.adherence_rule_fired) return;
     try writer.writeAll("\nSchedule continuity:\n");
     try writer.print("- {d} core workouts skipped or rested; {d} modified in the decision window.\n", .{
@@ -365,6 +393,10 @@ fn printReplanContext(writer: *Io.Writer, result: Result) !void {
         try writer.writeAll(" through ");
         try printDate(writer, last);
         try writer.writeAll(" (dates of skipped workouts).\n");
+    }
+    if (addressed) {
+        try writer.writeAll("- These historical disruptions are already addressed by the applied return plan. They alone do not require starting another adjustment.\n");
+        return;
     }
     try writer.writeAll("- The next proposal should reconnect the remaining progression to completed training, rather than resume at the calendar's current workout.\n");
     if (result.classification == .replan) {
@@ -451,7 +483,7 @@ pub fn printMarkdown(
     try writer.print("- Observation window: {s} through {s}\n", .{ start_text, end_text });
     try writer.print("- Recommendation: **{s}**\n", .{classificationName(result.classification)});
     try writer.print("{s}\n", .{recommendationText(result.classification)});
-    try printReplanContext(writer, result);
+    try printReplanContext(writer, result, false);
     try writer.print(
         "- Core-run activity coverage: {d}/{d}; next-morning recovery coverage: {d}/{d} eligible " ++
             "({d} required); recent Oura coverage: {d}/{d} ({d} required)\n",

@@ -39,7 +39,7 @@ pub fn build(b: *std.Build) void {
 
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("tests.zig"),
             .target = target,
             .optimize = optimize,
             .link_libc = true,

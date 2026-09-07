@@ -1,6 +1,7 @@
 const std = @import("std");
 const runner_profile = @import("runner_profile.zig");
 const training_policy = @import("training_policy.zig");
+const plan_revision = @import("plan_revision.zig");
 
 const Io = std.Io;
 
@@ -34,10 +35,50 @@ pub const PlanProvenance = struct {
     runner_profile: runner_profile.RunnerProfile,
     training_policy: training_policy.Policy,
     assessment: AssessmentSnapshot,
+    adjustment: ?Adjustment = null,
+};
+
+pub const Adjustment = struct {
+    policy_version: u8 = 3,
+    restart_date: []const u8,
+    interruption_start: []const u8,
+    skipped_workouts: u16,
+    ready_to_resume: bool,
+    // Retained only to parse and explicitly reject superseded proposals.
+    return_load_percent: ?u8 = null,
+    observed_weekly_km: f64,
+    observed_long_run_km: f64,
+    observed_peak_weekly_km: ?f64 = null,
+    race_date_choice: []const u8,
+    parent: *const plan_revision.RevisionFile,
+    continuation: ?*const plan_revision.RevisionFile = null,
+    week_changes: []const AdjustmentWeek = &.{},
+    method: []const u8 = "friel-inspired",
+    guidance_url: []const u8 = "https://joefrieltraining.com/missed-workouts/",
+    stage: ReturnStage = .base,
+    base_weeks: u8 = 1,
+    repeat_source_week: u8 = 0,
+    repeat_weekly_km: f64 = 0,
+    repeat_long_run_km: f64 = 0,
+    familiar_easy_km: f64 = 0,
+    returned_weekly_km: ?f64 = null,
+    returned_long_run_km: ?f64 = null,
+    omitted_source_weeks: []const u8 = &.{},
+};
+
+pub const ReturnStage = enum { base, repeat, continuation };
+
+pub const AdjustmentWeek = struct {
+    week: u8,
+    source_week: u8,
+    distance_fraction: f64,
+    reason: []const u8,
+    stage: ReturnStage = .continuation,
 };
 
 pub const VolumeMethod = enum {
     baseline,
+    aerobic_return,
     build_progression,
     recovery_reduction,
     race_specific_progression,

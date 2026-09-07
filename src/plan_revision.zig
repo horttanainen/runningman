@@ -5,6 +5,7 @@ const plan_provenance = @import("plan_provenance.zig");
 const runner_profile = @import("runner_profile.zig");
 const store = @import("store.zig");
 const workout = @import("workout.zig");
+const targeted_adjustment = @import("targeted_adjustment.zig");
 
 const Io = std.Io;
 
@@ -79,6 +80,19 @@ pub fn validate(storage: *const store.Store, revision: RevisionFile) !void {
 
     const parent = storage.schedules.get(revision.base_schedule_id) orelse
         return error.StaleRevision;
+    if (revision.provenance.adjustment) |context| {
+        const parent_days = date.daysBetween(try date.parse(parent.start_date), try date.parse(parent.race_date)) + 1;
+        if (parent_days <= 0 or context.parent.workouts.len != @as(usize, @intCast(parent_days))) return error.InvalidAdjustmentContext;
+        if (context.parent.base_schedule_id != parent.id or
+            !std.mem.eql(u8, context.parent.race_date, parent.race_date)) return error.InvalidAdjustmentContext;
+        for (context.parent.workouts) |item| {
+            const original = store.workoutForDate(storage, parent.id, try date.parse(item.date)) orelse return error.IncompleteParentSchedule;
+            if (!samePrescription(original, item) or !sameWorkoutDecision(original.decision, item.decision)) return error.RevisionHistoricalWorkoutChanged;
+        }
+        const original_context = parent.plan_provenance orelse return error.AdjustmentNeedsGeneratedPlan;
+        if (!std.mem.eql(u8, original_context.training_policy_sha256, context.parent.provenance.training_policy_sha256) or
+            !std.mem.eql(u8, original_context.runner_profile_sha256, context.parent.provenance.runner_profile_sha256)) return error.InvalidAdjustmentContext;
+    }
     const plan_start_text = revision.provenance.runner_profile.plan_start_date.value;
     if (!std.mem.eql(u8, parent.start_date, plan_start_text)) {
         return error.RevisionPlanStartMismatch;
@@ -238,6 +252,45 @@ pub fn printPreview(
     );
 
     const provenance = revision.provenance;
+    if (provenance.adjustment) |context| {
+        try writer.print("Friel-inspired interruption adjustment (coaching guidance, not a validated recovery formula)\n  Target date: {s} -> {s} ({s})\n  Current return stage: {s}\n  Observed running: {d:.1} km/week; longest run {d:.1} km\n  Repeat source week {d}: completed {d:.1} km; long run {d:.1} km\n  Source: {s}\n", .{
+            context.parent.race_date,   revision.race_date,           context.race_date_choice,   @tagName(context.stage),
+            context.observed_weekly_km, context.observed_long_run_km, context.repeat_source_week, context.repeat_weekly_km,
+            context.repeat_long_run_km, context.guidance_url,
+        });
+        if (context.stage == .base) {
+            try writer.print("  Aerobic-return forecast: {d} calendar week(s), including any partial week.\n  This is a scheduling assumption, NOT a mandatory duration or measured fitness loss.\n  Repeat stage stays provisional until easy running and recovery feel normal.\n", .{context.base_weeks});
+        }
+        if (context.stage != .continuation) {
+            try writer.writeAll("  Later progression stays provisional until the repeated loading week goes well.\n  The date does not advance stages automatically; confirm the response in a new adjustment.\n");
+        }
+        if (context.returned_weekly_km) |km| {
+            try writer.print("  Completed return week: {d:.1} km; long run {d:.1} km. Subsequent growth uses this observed load.\n", .{ km, context.returned_long_run_km orelse 0 });
+        }
+        try writer.writeAll("  Original baseline evidence, performance assessment, and race prescription retained.\n  Schedule feasibility is not a prediction of the original finishing-time goal.\n");
+        if (context.omitted_source_weeks.len == 0) {
+            try writer.writeAll("  No source weeks omitted from the resumed progression.\n");
+        } else {
+            try writer.writeAll("  Fixed-date compromise: omitted source weeks");
+            for (context.omitted_source_weeks) |number| try writer.print(" {d}", .{number});
+            try writer.writeAll(". Less preparation remains; the finishing-time goal needs reassessment.\n");
+        }
+        try writer.writeByte('\n');
+        try writer.writeAll("Remaining weekly running (old -> proposed):\n");
+        for (revision.weeks, 0..) |week, index| {
+            if (date.compare(try date.parse(week.start_date), effective_from) == .lt) continue;
+            const old_km = if (index < context.parent.weeks.len) context.parent.weeks[index].target_core_distance_km else 0;
+            const old_long = if (index < context.parent.weeks.len) context.parent.weeks[index].long_run_distance_km else 0;
+            try writer.print("  {s}: {d:.1} -> {d:.1} km; long run {d:.1} -> {d:.1} km ({s})\n", .{
+                week.start_date, old_km, week.target_core_distance_km, old_long, week.long_run_distance_km, week.phase,
+            });
+            for (context.week_changes) |change| {
+                if (change.week != index + 1) continue;
+                try writer.print("    {s}; source week {d}\n", .{ change.reason, change.source_week });
+            }
+        }
+        try writer.writeByte('\n');
+    }
     try writer.print(
         "Planner provenance\n" ++
             "  Generator: {s}\n" ++
@@ -325,11 +378,16 @@ pub fn printPreview(
         const week: u8 = @intCast(@divFloor(date.daysBetween(start, proposed_date), 7) + 1);
         if (previous_week == null or previous_week.? != week) {
             try writer.print("Week {d} — {s}\n", .{ week, proposed.phase });
+            if (revision.provenance.adjustment) |context| {
+                if (try targeted_adjustment.pendingStage(context, proposed_date)) |stage| {
+                    try writer.print("  PROVISIONAL {s} stage — requires a response-confirmed adjustment before use.\n", .{@tagName(stage)});
+                }
+            }
             previous_week = week;
         }
         const current = store.workoutForDate(storage, parent.id, proposed_date);
         const change_marker = if (current) |planned|
-            if (samePrescription(planned, proposed)) "unchanged" else "changed"
+            if (sameVisiblePrescription(planned, proposed)) "unchanged" else "changed"
         else
             "new";
         try writer.print(
@@ -472,6 +530,23 @@ fn proposedDistanceRange(proposed: ProposedWorkout) DistanceRange {
         }
     }
     return .{ .minimum_km = total_km, .maximum_km = total_km };
+}
+
+fn sameVisiblePrescription(current: model.Workout, proposed: ProposedWorkout) bool {
+    var left = current;
+    var right = proposed;
+    // Phase and explicit default terrain are planning metadata; the race's
+    // distance, effort, pace and instructions determine its visible change.
+    left.phase = right.phase;
+    left.terrain = left.terrain orelse .road;
+    right.terrain = right.terrain orelse .road;
+    if (std.mem.eql(u8, left.kind, "rest") and std.mem.eql(u8, right.kind, "rest")) {
+        left.distance_min_km = 0;
+        left.distance_max_km = 0;
+        right.distance_min_km = 0;
+        right.distance_max_km = 0;
+    }
+    return samePrescription(left, right);
 }
 
 fn samePrescription(current: model.Workout, proposed: ProposedWorkout) bool {

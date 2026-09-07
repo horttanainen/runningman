@@ -14,7 +14,8 @@ sh -n \
     tests/encrypt-data.sh \
     tests/polar-import.sh \
     tests/garmin-import.sh \
-    tests/oura-import.sh
+    tests/oura-import.sh \
+    tests/adjustment.sh
 ./scripts/import-polar --build-only
 ./scripts/import-garmin --build-only
 sh tests/decrypt-data.sh
@@ -22,3 +23,4 @@ sh tests/encrypt-data.sh
 sh tests/polar-import.sh
 sh tests/garmin-import.sh
 sh tests/oura-import.sh
+sh tests/adjustment.sh

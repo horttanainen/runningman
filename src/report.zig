@@ -5,6 +5,8 @@ const model = @import("model.zig");
 const store = @import("store.zig");
 const training_review = @import("training_review.zig");
 const workout_detail = @import("workout.zig");
+const targeted_adjustment = @import("targeted_adjustment.zig");
+const interruption = @import("interruption.zig");
 
 const Io = std.Io;
 
@@ -137,6 +139,13 @@ pub fn printSchedule(
                     active_schedule.?.id,
                 });
                 previous_week = planned.week;
+            }
+            if (active_schedule.?.plan_provenance) |provenance| {
+                if (provenance.adjustment) |context| {
+                    if (try targeted_adjustment.pendingStage(context, current)) |stage| {
+                        try writer.print("  PROVISIONAL {s} stage: confirm the return response in a new adjustment before using these workouts.\n", .{@tagName(stage)});
+                    }
+                }
             }
             try writer.print("{s} {s}: {s}", .{ planned.date, planned.day, planned.kind });
             if (planned.distance_min_km != null or planned.distance_max_km != null) {
@@ -284,8 +293,15 @@ pub fn printMarkdown(
                 try printDurationOnly(writer, anchor);
             }
             try writer.writeByte('\n');
+            const assessment_profile = if (provenance.adjustment) |context|
+                (try interruption.originalPlan(context.parent)).provenance.runner_profile
+            else
+                provenance.runner_profile;
+            if (provenance.adjustment) |context| {
+                try writer.print("- Friel-inspired return stage: {s}; later stages require response confirmation. The assessment below is original-plan context, not a revised outcome prediction.\n", .{@tagName(context.stage)});
+            }
             if (assessment.assess(
-                provenance.runner_profile,
+                assessment_profile,
                 provenance.training_policy,
             )) |recomputed| {
                 if (recomputed.supported_fast_seconds != null and

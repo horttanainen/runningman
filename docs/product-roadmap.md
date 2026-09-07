@@ -605,6 +605,22 @@ application, while Core ML remains an optional deployment mechanism after a
 sufficient runner-week outcome dataset exists. Neither model bypasses the
 deterministic review policy or plan validator.
 
+The explicit interruption proposal is available through `plan adjust` for
+generated road distance plans. Policy v3 replaces the percentage-cap/calendar
+rejoin approach with a Friel-inspired aerobic return, repeat of the last
+completed loading week, and continuation from that point. It asks whether the
+target date is movable or fixed; movable targets retain the source progression,
+while fixed-date compromises list omitted weeks and must pass structural checks.
+Return stages require explicit user response confirmation and recorded training;
+future stages remain provisional rather than advancing automatically by date.
+Midweek aerobic returns preserve already logged runs. Baseline evidence and the
+race prescription stay intact. This is published coaching guidance adapted to
+the product, not an experimentally validated recovery algorithm. See
+[interruption adjustment](interruption-adjustment.md) for the source, assumptions,
+stage workflow, supported scope and independent validation. Foundation-only,
+trail/duration-based returns and comprehensive fixed-date candidate search remain
+future work.
+
 Increment 4.4 tests must cover complete and sparse logs, missing Oura data,
 superseded activity corrections, modified and skipped workouts, persisted and
 reconstructed weekly decisions, explicit ending-date determinism, all three
