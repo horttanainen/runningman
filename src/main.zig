@@ -14,6 +14,7 @@ const plan_validator = @import("plan_validator.zig");
 const report = @import("report.zig");
 const runner_profile = @import("runner_profile.zig");
 const schedule = @import("schedule.zig");
+const sickness = @import("sickness.zig");
 const store = @import("store.zig");
 const training_policy = @import("training_policy.zig");
 const workout_detail = @import("workout.zig");
@@ -293,6 +294,11 @@ fn commandLog(
     storage: *const store.Store,
     args: []const []const u8,
 ) !void {
+    for (args) |arg| {
+        if (!std.mem.eql(u8, arg, "--sick")) continue;
+        try commandLogSickness(allocator, io, reader, writer, data_path, storage, args);
+        return;
+    }
     var command = try parseLogCommand(args);
     const previous = store.latestActivityForDate(storage, command.target_date);
     const schedule_id: u64 = if (previous) |existing|
@@ -338,6 +344,42 @@ fn commandLog(
             .{ @tagName(value.status), value.date, value.schedule_id, value.workout_id },
         );
     }
+}
+
+fn commandLogSickness(
+    allocator: std.mem.Allocator,
+    io: Io,
+    reader: *Io.Reader,
+    writer: *Io.Writer,
+    data_path: []const u8,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    const command = try sickness.parse(args, date.today());
+    const events = try sickness.propose(allocator, storage, command);
+    defer allocator.free(events);
+    if (events.len == 0) {
+        try writer.writeAll("No missing scheduled runs in this range. No records added.\n");
+        return;
+    }
+    try writer.print("Mark {d} missing scheduled runs as skipped due to sickness:\n", .{events.len});
+    for (events) |event| {
+        const workout_id = event.workout_id orelse return error.NoWorkoutForDate;
+        const workout = storage.workouts.get(workout_id) orelse return error.NoWorkoutForDate;
+        try writer.print("- {s}: {s} — {s}\n", .{ workout.date, workout.kind, workout.details });
+    }
+    if (command.dry_run) {
+        try writer.writeAll("Dry run: no records added.\n");
+        return;
+    }
+    const answer = try prompt(allocator, reader, writer, "Record these skipped runs? [y/N]: ");
+    defer allocator.free(answer);
+    if (!try parseYesNo(answer)) {
+        try writer.writeAll("Cancelled. No records added.\n");
+        return;
+    }
+    try store.append(io, data_path, events);
+    try writer.print("Recorded {d} skipped runs due to sickness.\n", .{events.len});
 }
 
 fn commandCheckIn(
@@ -690,6 +732,21 @@ fn commandExport(
     try report.printMarkdown(allocator, writer, storage, start, command.ending);
 }
 
+fn parseYesNo(value: []const u8) !bool {
+    if (value.len == 0 or
+        std.ascii.eqlIgnoreCase(value, "n") or
+        std.ascii.eqlIgnoreCase(value, "no"))
+    {
+        return false;
+    }
+    if (std.ascii.eqlIgnoreCase(value, "y") or
+        std.ascii.eqlIgnoreCase(value, "yes"))
+    {
+        return true;
+    }
+    return error.InvalidYesNo;
+}
+
 fn exportJsonl(
     allocator: std.mem.Allocator,
     io: Io,
@@ -1016,6 +1073,7 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman [--data PATH] check-in [DATE] [--sleep 0-100 --readiness 0-100]
         \\  runningman [--data PATH] log [DATE]
         \\  runningman [--data PATH] log [DATE] --distance KM [options]
+        \\  runningman [--data PATH] log --sick --from DATE --through DATE [--dry-run]
         \\  runningman [--data PATH] history [FROM_DATE] [TO_DATE]
         \\  runningman [--data PATH] compare [--weeks N] [--ending DATE]
         \\  runningman profile validate RUNNER_PROFILE.json
@@ -1048,6 +1106,9 @@ fn printUsage(writer: *Io.Writer) !void {
 
 fn friendlyError(err: anyerror) []const u8 {
     return switch (err) {
+        error.InvalidSicknessCommand => "use log --sick --from YYYY-MM-DD --through YYYY-MM-DD [--dry-run] without other activity flags",
+        error.InvalidSicknessRange => "sickness --from must be on or before --through",
+        error.FutureSicknessDate => "sickness dates cannot be in the future",
         error.NotInitialized => "no plan found; run `runningman init YYYY-MM-DD` with a Monday start date",
         error.AlreadyInitialized => "the data file already contains a plan",
         error.StartMustBeMonday => "the 13-week plan must start on a Monday",
@@ -1273,6 +1334,7 @@ fn friendlyError(err: anyerror) []const u8 {
         error.DateRangeTooLarge => "history is limited to 366 days at a time",
         error.InvalidWeekCount => "--weeks must be from 1 to 52",
         error.InvalidExportFormat => "export format must be markdown or jsonl",
+        error.InvalidYesNo => "answer the confirmation question with yes or no",
         error.InvalidDataFile => "the data file contains an invalid event",
         error.UnknownCommand => "unknown command",
         error.UnknownFlag => "unknown option",

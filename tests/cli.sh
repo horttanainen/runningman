@@ -64,6 +64,52 @@ test ! -e "$data_file"
 grep -q "immutable 13-week periodized running schedule" "$temporary_directory/init.txt"
 
 generated_data_file="$temporary_directory/generated-data.jsonl"
+sick_data="$temporary_directory/sickness.jsonl"
+"$binary" --data "$sick_data" init 2020-07-20 >/dev/null
+"$binary" --data "$sick_data" log 2020-07-21 --sport cycling --duration 40 >/dev/null
+cp "$sick_data" "$temporary_directory/sickness-before.jsonl"
+"$binary" --data "$sick_data" log --sick --from 2020-07-20 --through 2020-07-26 --dry-run > "$temporary_directory/sick-preview.txt"
+grep -q '2020-07-20:' "$temporary_directory/sick-preview.txt"
+grep -q '2020-07-25:' "$temporary_directory/sick-preview.txt"
+if grep -q '2020-07-21:\|2020-07-22:\|2020-07-24:\|2020-07-26:' "$temporary_directory/sick-preview.txt"; then
+    echo "sickness preview included an existing activity or rest day" >&2
+    exit 1
+fi
+cmp "$sick_data" "$temporary_directory/sickness-before.jsonl"
+printf 'n\n' | "$binary" --data "$sick_data" log --sick --from 2020-07-20 --through 2020-07-26 >/dev/null
+cmp "$sick_data" "$temporary_directory/sickness-before.jsonl"
+printf 'y\n' | "$binary" --data "$sick_data" log --sick --from 2020-07-20 --through 2020-07-26 > "$temporary_directory/sick-applied.txt"
+grep -q 'Recorded 3 skipped runs due to sickness' "$temporary_directory/sick-applied.txt"
+test "$(grep -c '"deviation_reason":"sickness"' "$sick_data")" -eq 3
+grep '"deviation_reason":"sickness"' "$sick_data" > "$temporary_directory/sick-records.jsonl"
+test "$(grep -c '"status":"skipped"' "$temporary_directory/sick-records.jsonl")" -eq 3
+if grep -Eq '"(rpe|pain|distance_km|duration_seconds|supersedes_activity_id)":' "$temporary_directory/sick-records.jsonl"; then
+    echo "sickness records invented measurements or superseded existing outcomes" >&2
+    exit 1
+fi
+"$binary" --data "$sick_data" log --sick --from 2020-07-27 --through 2020-07-27 --dry-run > "$temporary_directory/sick-single.txt"
+grep -q 'Mark 1 missing scheduled runs' "$temporary_directory/sick-single.txt"
+grep -q '2020-07-27:' "$temporary_directory/sick-single.txt"
+cp "$sick_data" "$temporary_directory/sickness-after.jsonl"
+"$binary" --data "$sick_data" log --sick --from 2020-07-20 --through 2020-07-26 > "$temporary_directory/sick-repeat.txt"
+grep -q 'No missing scheduled runs' "$temporary_directory/sick-repeat.txt"
+cmp "$sick_data" "$temporary_directory/sickness-after.jsonl"
+for sick_args in \
+    '--sick --from 2020-07-20' \
+    '--sick --from 2020-07-26 --through 2020-07-20' \
+    '--sick --from 9999-01-01 --through 9999-01-02' \
+    '--sick --from 2020-02-30 --through 2020-07-26' \
+    '--sick --from 2020-07-20 --through 2020-07-26 --rpe 3' \
+    '--sick --from 2020-07-20 --through 2020-07-26 --from 2020-07-20' \
+    '--sick --from 2019-07-20 --through 2020-07-26'
+do
+    if "$binary" --data "$sick_data" log $sick_args >/dev/null 2>&1; then
+        echo "expected invalid sickness arguments to fail: $sick_args" >&2
+        exit 1
+    fi
+    cmp "$sick_data" "$temporary_directory/sickness-after.jsonl"
+done
+
 generated_plan="$temporary_directory/generated-plan.json"
 generated_plan_again="$temporary_directory/generated-plan-again.json"
 generated_markdown="$temporary_directory/training-plan.md"

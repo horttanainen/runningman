@@ -366,6 +366,22 @@ Or provide everything directly:
   --notes "Easy and relaxed"
 ```
 
+To fill missing scheduled runs during an illness, preview an inclusive date range:
+
+```sh
+./zig-out/bin/runningman log --sick --from 2026-08-24 --through 2026-09-06 --dry-run
+```
+
+Remove `--dry-run` to review the affected workouts and confirm recording them.
+Both dates are required in `YYYY-MM-DD` format and cannot be in the future.
+Each missing run is recorded as `skipped` with reason `sickness`. Existing
+outcomes (including cycling substitutions), scheduled rest days, and optional
+recovery runs where rest is equally valid are left
+alone; repeating the command adds no duplicates. Every date must have a
+scheduled workout or rest entry. The command does not change the schedule or
+invent effort, pain, or recovery scores. Run `runningman review` afterwards;
+missing recovery data can still result in `INSUFFICIENT_DATA`.
+
 Outcomes are:
 
 - `completed`
