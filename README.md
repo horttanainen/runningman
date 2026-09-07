@@ -560,6 +560,31 @@ command before any append-only correction can be created.
 
 ## Review training
 
+Ask whether the current schedule still looks appropriate:
+
+```sh
+./zig-out/bin/runningman review
+```
+
+The review covers progress from the start of the plan through the latest
+closed training day. Its recommendation uses at most the latest 28 closed
+days. If today's core workout has not been logged yet, today is not treated as
+missing: the activity window closes yesterday while today's Oura scores remain
+available as yesterday's next-morning recovery signal. Use an explicit date
+for a reproducible historical review:
+
+```sh
+./zig-out/bin/runningman review --as-of 2026-07-27
+```
+
+The concise output shows whole-plan outcomes by workout category, planned and
+actual running distance, runner-specific HR/RPE calibration, the current Oura
+Sleep/Readiness pattern, coverage gaps, and a `HOLD`, `PROGRESS`, `REDUCE`, `REPLAN`, or
+`INSUFFICIENT_DATA` recommendation.
+When information is insufficient, missing workout dates and types appear
+directly below the recommendation. Missing Oura dates are listed separately
+with the number of additional check-ins required to meet each coverage rule.
+
 Show daily plan versus reality:
 
 ```sh
@@ -580,12 +605,12 @@ duration, easy/quality/long-run distribution, average RPE, heart rate, Oura
 Sleep and Readiness Scores, pain reports, and missing records. Missing data is
 never treated as rest.
 
-## Weekly ChatGPT check-in
+## Detailed review report
 
 Generate a Markdown report:
 
 ```sh
-./zig-out/bin/runningman review \
+./zig-out/bin/runningman review report \
   --weeks 1 \
   --ending 2026-07-26 > weekly-check-in.md
 ```
@@ -595,8 +620,8 @@ It contains:
 - Training goal, baseline, availability, and intensity guidance
 - Planner, profile, policy, evidence, source hashes, assessment, and race
   context when generated provenance is available
-- A deterministic `KEEP_PLAN`, `REVIEW_REQUIRED`, or `INSUFFICIENT_DATA`
-  classification with every coverage and warning rule
+- A deterministic `HOLD`, `PROGRESS`, `REDUCE`, `REPLAN`, or `INSUFFICIENT_DATA`
+  recommendation with every coverage and direction rule
 - Schedule revision history
 - Planned-versus-actual summary
 - Comparison signals
@@ -608,16 +633,60 @@ It contains:
   pace ranges, and expected duration
 - The JSON contract for proposing a complete replacement program
 
-The local classifier uses review policy `runningman-review` version 2. It requires an
-explicit outcome for every core run and next-morning Sleep/Readiness coverage
-for at least half of eligible core runs. It requests review for a modified or
-missed core run, any recorded pain, a non-race RPE of 9–10, or at least two
-mornings below 70 for Sleep or Readiness. These thresholds are labeled as
-conservative product assumptions in the report. One unusual wearable score
-does not trigger review, missing activity is never treated as rest, and data
-after `--ending` is excluded from classification.
+The local classifier uses review policy `runningman-review` version 5. Oura is
+responsible for combining its physiological signals; Runningman consumes only
+the resulting Sleep and Readiness Scores and does not reinterpret raw HRV or
+other sensor data. Each score remains independent. A morning is shown as
+`BALANCED`, `SLEEP_LIMITED`, `READINESS_LIMITED`, or `BOTH_LIMITED`, so adequate
+Sleep with poor Readiness remains visible rather than being averaged away.
 
-Classification is read-only: it does not automatically reduce, hold, progress,
+The classifier requires an explicit outcome for every closed core run,
+next-morning Sleep/Readiness coverage for at least half of eligible core runs,
+and complete scores on at least two of the latest three mornings. `REPLAN` is
+selected for at least two modified, skipped, or rested core runs, requesting
+that the next proposal reconnect the remaining progression to completed
+training. Sickness-related skips are shown with their count and first/last
+workout dates; these are not inferred illness onset or recovery dates.
+Replanning does not itself prescribe less load, shift workouts, or decide the
+race date. Those decisions belong to the next proposal.
+
+`REDUCE` is selected for a non-race RPE of 9–10, confirmed current pain affecting
+the plan, or Sleep or Readiness below Oura's `Good` boundary of 70 on at
+least two of those three mornings. A cycling substitution remains visible but
+does not reduce the plan by itself. Reduction signals take precedence over
+replanning and progression signals. Missing required coverage takes precedence
+over all directions, while known disruption remains visible in the report.
+
+Pain scores of 0–3 are informational. If any score in the decision window is
+above 3, the concise review asks whether pain currently affects the user's
+ability to follow the plan. Only an explicit yes selects `REDUCE`; historical
+pain never decides on the user's behalf. The answer is used for that read-only
+review and is not written to the training log.
+
+`PROGRESS` requires at least two completed sessions that provide consistent
+evidence that the prescription was conservative: quality sessions below their
+RPE 6–8 target, or sessions completed faster than the full structured pace
+range while remaining inside the prescribed RPE. These persistence thresholds
+are conservative product assumptions. One unusual workout or wearable score
+does not select a direction, missing activity is never treated as rest, and
+data after the review horizon is excluded. Bidirectional adjustment follows the
+general increase/maintain/decrease model evaluated in recreational runners by
+[Nuuttila et al.](https://pubmed.ncbi.nlm.nih.gov/35975912/); Runningman's exact
+signals and persistence thresholds remain product policy rather than a claim
+that the study validated this implementation.
+
+The review also derives observed session-average heart-rate bands for easy,
+quality, and long runs whose recorded RPE matched the prescribed range. At
+least two matching runs are required. With four or more it reports the central
+half of observations to reduce outlier influence. Quality-session HR includes
+warm-up and recovery and is explicitly not presented as the heart rate of the
+hard repetitions; segment-specific guidance requires structured lap HR data.
+Both HR and RPE remain visible because field running research found comparable
+training outcomes from HR- and RPE-guided prescriptions while noting different
+measurement precision
+([Johnson et al.](https://pubmed.ncbi.nlm.nih.gov/27442332/)).
+
+The recommendation is read-only: it does not automatically reduce, hold, progress,
 or replace the schedule. This keeps the program from making a medical or
 training-load decision from an unsupported threshold. Any replacement still
 uses the independently validated preview/apply workflow below.
@@ -632,6 +701,11 @@ Give the Markdown file to ChatGPT or Codex for a weekly review. A review does
 not have to change the program. If a change is recommended, ask it to create a
 revision JSON file that follows the contract in the report and replaces every
 remaining day through race day.
+
+Applied schedules are immutable snapshots. When a replacement is applied,
+existing activities retain their original `schedule_id` and `workout_id`, and
+review resolves those activities against that older workout. Only the
+remaining program changes; the historical schedule is not rewritten.
 
 ## Revise the remaining program
 

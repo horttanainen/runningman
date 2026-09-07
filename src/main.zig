@@ -17,6 +17,7 @@ const schedule = @import("schedule.zig");
 const sickness = @import("sickness.zig");
 const store = @import("store.zig");
 const training_policy = @import("training_policy.zig");
+const training_review = @import("training_review.zig");
 const workout_detail = @import("workout.zig");
 
 const Io = std.Io;
@@ -154,7 +155,7 @@ fn run(
     } else if (std.mem.eql(u8, command, "export")) {
         try commandExport(allocator, io, writer, data_path, &storage, command_args);
     } else if (std.mem.eql(u8, command, "review")) {
-        try commandExport(allocator, io, writer, data_path, &storage, command_args);
+        try commandReview(allocator, io, reader, writer, data_path, &storage, command_args);
     } else {
         return error.UnknownCommand;
     }
@@ -732,6 +733,58 @@ fn commandExport(
     try report.printMarkdown(allocator, writer, storage, start, command.ending);
 }
 
+fn commandReview(
+    allocator: std.mem.Allocator,
+    io: Io,
+    reader: *Io.Reader,
+    writer: *Io.Writer,
+    data_path: []const u8,
+    storage: *const store.Store,
+    args: []const []const u8,
+) !void {
+    if (args.len == 0) {
+        var snapshot = try training_review.evaluateSnapshot(storage, date.today());
+        try confirmPainImpact(allocator, reader, writer, &snapshot);
+        try training_review.printStatus(writer, storage, snapshot);
+        return;
+    }
+    if (args.len == 2 and std.mem.eql(u8, args[0], "--as-of")) {
+        const as_of = try date.parseReference(args[1]);
+        var snapshot = try training_review.evaluateSnapshot(storage, as_of);
+        try confirmPainImpact(allocator, reader, writer, &snapshot);
+        try training_review.printStatus(writer, storage, snapshot);
+        return;
+    }
+    if (std.mem.eql(u8, args[0], "report")) {
+        try commandExport(allocator, io, writer, data_path, storage, args[1..]);
+        return;
+    }
+    return error.InvalidReviewCommand;
+}
+
+fn confirmPainImpact(
+    allocator: std.mem.Allocator,
+    reader: *Io.Reader,
+    writer: *Io.Writer,
+    snapshot: *training_review.Snapshot,
+) !void {
+    if (!training_review.needsPainConfirmation(snapshot.*)) return;
+
+    try writer.print(
+        "Pain reached {d}/10 in the decision window. ",
+        .{snapshot.result.inputs.maximum_pain},
+    );
+    const answer = try prompt(
+        allocator,
+        reader,
+        writer,
+        "Is pain currently affecting your ability to follow the training plan? [y/N]: ",
+    );
+    const pain_affects_plan = try parseYesNo(answer);
+    training_review.applyPainConfirmation(snapshot, pain_affects_plan);
+    try writer.writeByte('\n');
+}
+
 fn parseYesNo(value: []const u8) !bool {
     if (value.len == 0 or
         std.ascii.eqlIgnoreCase(value, "n") or
@@ -1085,7 +1138,8 @@ fn printUsage(writer: *Io.Writer) !void {
         \\  runningman [--data PATH] plan apply REVISION.json
         \\  runningman [--data PATH] plan markdown [REVISION.json] [--output TRAINING_PLAN.md]
         \\  runningman [--data PATH] plan explain [DATE_REFERENCE|REVISION.json [DATE_REFERENCE]]
-        \\  runningman [--data PATH] review [--weeks N] [--ending DATE]
+        \\  runningman [--data PATH] review [--as-of DATE]
+        \\  runningman [--data PATH] review report [--weeks N] [--ending DATE]
         \\  runningman [--data PATH] export [--format markdown|jsonl] [--weeks N] [--ending DATE]
         \\
         \\Log options:
@@ -1334,6 +1388,8 @@ fn friendlyError(err: anyerror) []const u8 {
         error.DateRangeTooLarge => "history is limited to 366 days at a time",
         error.InvalidWeekCount => "--weeks must be from 1 to 52",
         error.InvalidExportFormat => "export format must be markdown or jsonl",
+        error.InvalidReviewCommand => "review accepts no arguments, `--as-of DATE`, or `report [--weeks N] [--ending DATE]`",
+        error.NoClosedReviewPeriod => "the plan has no completed review period yet",
         error.InvalidYesNo => "answer the confirmation question with yes or no",
         error.InvalidDataFile => "the data file contains an invalid event",
         error.UnknownCommand => "unknown command",

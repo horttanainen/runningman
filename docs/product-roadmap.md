@@ -1,18 +1,20 @@
 # Runningman product and planning roadmap
 
 Status: in progress
-Last updated: 2026-07-21
+Last updated: 2026-08-18
 
 This document records the intended technical direction for `runningman` and the
 detailed design for Phase 1. The phase is being implemented through explicit
 review gates.
 
-Implementation status: Phase 1 Increments 1–3 and Increments 4.1–4.3 are
+Implementation status: Phase 1 Increments 1–3 and Increments 4.1–4.4 are
 implemented for review. They add versioned runner-profile, evidence-ledger,
 training-policy, and proposed-plan documents; deterministic baseline assessment
 and schedule generation; an independent plan validator; preview/apply
 compatibility; persisted input, policy, week, and workout provenance; and
-explanations for proposed and applied plans.
+explanations for proposed and applied plans. The review increment adds a
+read-only progress-to-date recommendation backed by Oura Sleep and Readiness
+Scores, plus the existing detailed Markdown export.
 
 ## Direction
 
@@ -501,9 +503,8 @@ Review gate: inspect several complete schedules, including boundary cases.
 - [x] Preserve policy and input provenance (Increment 4.1).
 - [x] Revalidate edited proposals before preview and apply (Increment 4.2).
 - [x] Add `plan explain` (Increment 4.3).
-- Complete the remaining review-export compactness and adherence breakdowns
-  (Increment 4.4); deterministic classification, provenance context, and
-  policy guardrails are implemented.
+- [x] Add progress-to-date review, compact adherence breakdowns, deterministic
+  classification, provenance context, and policy guardrails (Increment 4.4).
 - Complete the synthetic-profile and invariant-test suite.
 
 Review gate: decide whether Phase 1 is stable enough to begin the Swift port or
@@ -511,14 +512,23 @@ requires another policy iteration in Zig.
 
 #### Increment 4.4 plan: review export and local classification
 
-`runningman review` must produce a self-contained, reproducible Markdown
-snapshot for an explicit review period. External language models are optional;
-they are not part of the decision path.
+`runningman review` produces a concise recommendation over progress through the
+latest closed training day. The deterministic decision window is capped at 28
+days, while the progress summary covers the plan from its beginning. An
+unfinished core workout today is not counted as missing; the activity horizon
+closes yesterday while today's Oura observation can still describe yesterday's
+recovery. `--as-of DATE` makes that behavior reproducible.
 
-Keep the existing interface:
+`runningman review report` produces the self-contained Markdown snapshot for
+an explicit review period. External language models are optional; they are not
+part of the decision path.
+
+Interfaces:
 
 ```sh
-runningman review --weeks 4 --ending 2026-08-16
+runningman review
+runningman review --as-of 2026-08-16
+runningman review report --weeks 4 --ending 2026-08-16
 ```
 
 The export must include:
@@ -538,11 +548,17 @@ The export must include:
 - the applicable progression, recovery, intensity-distribution, long-run,
   scheduling, optional-run, missed-workout, and taper guardrails with rule IDs.
 
-Runningman must classify the review itself using a versioned deterministic
-review policy:
+Runningman classifies the review itself using versioned policy v5:
 
-- `KEEP_PLAN`: the minimum data coverage is present and no review rule fired;
-- `REVIEW_REQUIRED`: one or more explicit review rules fired; and
+- `HOLD`: coverage is sufficient and neither direction has enough evidence;
+- `PROGRESS`: repeated performance evidence indicates the provisional or
+  current prescription is conservative;
+- `REPLAN`: repeated disruption means the next proposal must reconnect remaining
+  progression to completed training; interruption alone does not prescribe a
+  load reduction or decide how to shift workouts or handle the race date;
+- `REDUCE`: unusually difficult effort, persistent Oura
+  recovery signals, or user-confirmed current pain constrains the next proposal
+  downward; and
 - `INSUFFICIENT_DATA`: the observation window lacks the required activity or
   recovery coverage for a trustworthy decision.
 
@@ -553,10 +569,32 @@ not be treated as rest, and one unusual Oura score must not automatically alter
 the schedule. Thresholds and persistence requirements must be reviewed before
 implementation rather than chosen implicitly in code.
 
-The output must explain the classification and list every triggering or
-coverage rule. It must never mutate the schedule. When the result is
-`REVIEW_REQUIRED`, the export may be given to a person or an optional local or
-external language model for interpretation, but any replacement program still
+Oura remains responsible for deriving recovery scores from its underlying
+signals. Runningman uses the published Sleep and Readiness Scores independently
+and does not calculate with raw HRV or other wearable measurements. The current
+pattern distinguishes balanced, sleep-limited, readiness-limited despite
+adequate sleep, and both-limited mornings. A low score requests review only
+when Sleep or Readiness is below Oura's Good category on at least two of the
+latest three mornings. The category boundary comes from Oura; the three-morning
+window and persistence requirement are conservative product assumptions.
+
+The decision is bidirectional because plans created without useful baseline
+performance data are deliberately provisional and may be too easy. Progression
+requires at least two quality sessions below prescribed RPE or two sessions
+faster than a complete structured pace prescription without exceeding its RPE
+range. Any reduction signal takes precedence. Completed running sessions also
+calibrate central observed session-average HR bands by workout category when
+at least two HR/RPE pairs match the prescribed effort. Quality HR remains a
+whole-session observation until structured lap HR is available.
+
+Pain scores through 3 are context only. A score above 3 causes the concise
+review to ask whether pain currently affects the user's ability to follow the
+plan. Only a user-confirmed yes selects `REDUCE`; the answer affects that
+read-only result and is not persisted as a medical judgment.
+
+The output must explain the recommendation and list every direction or coverage
+rule. It must never mutate the schedule. The export may be given to a person or
+an optional local or external language model for interpretation, but any replacement program still
 uses the proposed-plan schema, independent validation, preview, and explicit apply.
 
 This increment does not implement automatic `reduce`, `hold`, or `progress`
@@ -571,7 +609,11 @@ Increment 4.4 tests must cover complete and sparse logs, missing Oura data,
 superseded activity corrections, modified and skipped workouts, persisted and
 reconstructed weekly decisions, explicit ending-date determinism, all three
 classification results, rule explanations, absence of future-data leakage, and
-confirmation that review never changes stored data.
+confirmation that review never changes stored data. Concise-review tests also
+cover the unfinished-today horizon, all four recommendation directions,
+Sleep/Readiness disagreement, upward calibration, HR/RPE bands, yes/no pain
+confirmation, compatibility with the detailed report command, and preservation
+of historical workout IDs after a schedule revision.
 
 ## Phase 1 acceptance criteria
 
@@ -593,8 +635,8 @@ Phase 1 is complete when:
 - every workout contains structured, renderable instructions;
 - planned distance and pace imply visible duration estimates;
 - the plan records its profile snapshot, policy version, and policy hash;
-- weekly review produces a local, explained `KEEP_PLAN`, `REVIEW_REQUIRED`, or
-  `INSUFFICIENT_DATA` classification without requiring a language model;
+- weekly review produces a local, explained `HOLD`, `PROGRESS`, `REDUCE`, `REPLAN`, or
+  `INSUFFICIENT_DATA` recommendation without requiring a language model;
 - review classification is reproducible for an explicit ending date and never
   changes the stored schedule;
 - representative three-to-six-day plans have been manually reviewed;

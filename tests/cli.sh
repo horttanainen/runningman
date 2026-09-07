@@ -650,7 +650,7 @@ grep -q "Pain was reported" "$temporary_directory/compare.txt"
 grep -q "do not assume they were rest days" "$temporary_directory/compare.txt"
 grep -q "Readiness was below 70" "$temporary_directory/compare.txt"
 
-"$binary" --data "$data_file" review --weeks 1 --ending 2026-07-26 > "$temporary_directory/check-in.md"
+"$binary" --data "$data_file" review report --weeks 1 --ending 2026-07-26 > "$temporary_directory/check-in.md"
 grep -q "# Running training check-in" "$temporary_directory/check-in.md"
 grep -q "## Training context" "$temporary_directory/check-in.md"
 grep -q 'Planner: runningman-planner-v2; profile `example-half-marathon-runner`; policy `half-marathon` v2' \
@@ -670,9 +670,9 @@ grep -Eq "active by period end|known upcoming at period end|recorded after this 
 grep -Fq 'Easy \| relaxed' "$temporary_directory/check-in.md"
 grep -q "right knee" "$temporary_directory/check-in.md"
 grep -q "Sleep 65/100; Readiness 59/100" "$temporary_directory/check-in.md"
-grep -q "Classification: \\*\\*INSUFFICIENT_DATA\\*\\*" "$temporary_directory/check-in.md"
+grep -q "Recommendation: \\*\\*INSUFFICIENT_DATA\\*\\*" "$temporary_directory/check-in.md"
 grep -q "REVIEW-COVERAGE-ACTIVITY-01.*FIRED" "$temporary_directory/check-in.md"
-grep -q "REVIEW-PAIN-01.*FIRED" "$temporary_directory/check-in.md"
+grep -q "REVIEW-PAIN-CONFIRMED-01.*passed" "$temporary_directory/check-in.md"
 
 line_count=$(wc -l < "$data_file" | tr -d ' ')
 test "$line_count" = "193"
@@ -684,29 +684,57 @@ grep -q '"sport":"cycling"' "$temporary_directory/raw.jsonl"
 keep_review_data="$temporary_directory/keep-review.jsonl"
 "$binary" --data "$keep_review_data" init 2026-07-20 >/dev/null
 "$binary" --data "$keep_review_data" log 2026-07-20 \
-    --distance 6 --rpe 3 --pain 0 >/dev/null
+    --distance 6 --avg-hr 138 --rpe 3 --pain 0 >/dev/null
 "$binary" --data "$keep_review_data" log 2026-07-21 \
-    --distance 6 --rpe 6 --pain 0 >/dev/null
+    --distance 6 --avg-hr 152 --rpe 6 --pain 0 >/dev/null
 "$binary" --data "$keep_review_data" log 2026-07-23 \
-    --distance 6 --rpe 3 --pain 0 >/dev/null
+    --distance 6 --avg-hr 142 --rpe 3 --pain 0 >/dev/null
 "$binary" --data "$keep_review_data" log 2026-07-25 \
-    --distance 12 --rpe 5 --pain 0 >/dev/null
+    --distance 12 --avg-hr 135 --rpe 5 --pain 0 >/dev/null
 "$binary" --data "$keep_review_data" check-in 2026-07-21 \
     --sleep 82 --readiness 78 >/dev/null
 "$binary" --data "$keep_review_data" check-in 2026-07-22 \
     --sleep 65 --readiness 69 >/dev/null
+"$binary" --data "$keep_review_data" check-in 2026-07-25 \
+    --sleep 82 --readiness 80 >/dev/null
+"$binary" --data "$keep_review_data" check-in 2026-07-26 \
+    --sleep 80 --readiness 78 >/dev/null
+"$binary" --data "$keep_review_data" check-in 2026-07-27 \
+    --sleep 83 --readiness 81 >/dev/null
 keep_line_count=$(wc -l < "$keep_review_data" | tr -d ' ')
-"$binary" --data "$keep_review_data" review --weeks 1 --ending 2026-07-26 \
+"$binary" --data "$keep_review_data" review report --weeks 1 --ending 2026-07-26 \
     > "$temporary_directory/keep-review.md"
-grep -q "Classification: \\*\\*KEEP_PLAN\\*\\*" "$temporary_directory/keep-review.md"
+grep -q "Recommendation: \\*\\*HOLD\\*\\*" "$temporary_directory/keep-review.md"
 grep -q "REVIEW-RECOVERY-PERSISTENCE-01.*passed" "$temporary_directory/keep-review.md"
+grep -q "Easy: RPE 2-4; observed session-average HR 138-142 bpm" \
+    "$temporary_directory/keep-review.md"
 test "$keep_line_count" = "$(wc -l < "$keep_review_data" | tr -d ' ')"
+
+"$binary" --data "$keep_review_data" review --as-of 2026-07-27 \
+    > "$temporary_directory/keep-status.txt"
+grep -q "Schedule review as of 2026-07-27" "$temporary_directory/keep-status.txt"
+grep -q "Closed training through 2026-07-26" "$temporary_directory/keep-status.txt"
+grep -q "Recommendation: HOLD" "$temporary_directory/keep-status.txt"
+grep -q "Easy: 2 running completions.*2 scheduled" "$temporary_directory/keep-status.txt"
+grep -q "Latest morning (2026-07-27): Sleep 83 (Good); Readiness 81 (Good)" \
+    "$temporary_directory/keep-status.txt"
+grep -q "Current pattern: BALANCED" "$temporary_directory/keep-status.txt"
+grep -q "No schedule changes were made" "$temporary_directory/keep-status.txt"
+test "$keep_line_count" = "$(wc -l < "$keep_review_data" | tr -d ' ')"
+
+if "$binary" --data "$keep_review_data" review --weeks 1 --ending 2026-07-26 \
+    > /dev/null 2> "$temporary_directory/legacy-review-error.txt"
+then
+    echo "expected legacy review period options to be rejected" >&2
+    exit 1
+fi
+grep -q "review accepts no arguments" "$temporary_directory/legacy-review-error.txt"
 
 "$binary" --data "$keep_review_data" log 2026-08-01 \
     --distance 15 --rpe 10 --pain 5 >/dev/null
-"$binary" --data "$keep_review_data" review --weeks 1 --ending 2026-07-26 \
+"$binary" --data "$keep_review_data" review report --weeks 1 --ending 2026-07-26 \
     > "$temporary_directory/no-future-leakage-review.md"
-grep -q "Classification: \\*\\*KEEP_PLAN\\*\\*" \
+grep -q "Recommendation: \\*\\*HOLD\\*\\*" \
     "$temporary_directory/no-future-leakage-review.md"
 
 review_required_data="$temporary_directory/review-required.jsonl"
@@ -714,23 +742,144 @@ cp "$keep_review_data" "$review_required_data"
 "$binary" --data "$review_required_data" log 2026-07-21 \
     --modified --distance 5 --rpe 9 --pain 2 \
     --reason "Stopped early" >/dev/null
-"$binary" --data "$review_required_data" review --weeks 1 --ending 2026-07-26 \
+"$binary" --data "$review_required_data" log 2026-07-23 \
+    --modified --distance 5 --rpe 8 --pain 2 \
+    --reason "Stopped early" >/dev/null
+"$binary" --data "$review_required_data" review report --weeks 1 --ending 2026-07-26 \
     > "$temporary_directory/review-required.md"
-grep -q "Classification: \\*\\*REVIEW_REQUIRED\\*\\*" \
+grep -q "Recommendation: \\*\\*REDUCE\\*\\*" \
     "$temporary_directory/review-required.md"
 grep -q "REVIEW-ADHERENCE-01.*FIRED" "$temporary_directory/review-required.md"
-grep -q "REVIEW-PAIN-01.*FIRED" "$temporary_directory/review-required.md"
+grep -q "REVIEW-PAIN-CONFIRMED-01.*passed" "$temporary_directory/review-required.md"
 grep -q "REVIEW-DIFFICULTY-01.*FIRED" "$temporary_directory/review-required.md"
+
+readiness_limited_data="$temporary_directory/readiness-limited.jsonl"
+cp "$keep_review_data" "$readiness_limited_data"
+"$binary" --data "$readiness_limited_data" check-in 2026-07-26 \
+    --sleep 82 --readiness 65 >/dev/null
+"$binary" --data "$readiness_limited_data" check-in 2026-07-27 \
+    --sleep 83 --readiness 60 >/dev/null
+readiness_line_count=$(wc -l < "$readiness_limited_data" | tr -d ' ')
+"$binary" --data "$readiness_limited_data" review --as-of 2026-07-27 \
+    > "$temporary_directory/readiness-limited-status.txt"
+grep -q "Recommendation: REDUCE" \
+    "$temporary_directory/readiness-limited-status.txt"
+grep -q "Latest morning (2026-07-27): Sleep 83 (Good); Readiness 60 (Fair)" \
+    "$temporary_directory/readiness-limited-status.txt"
+grep -q "Current pattern: READINESS_LIMITED" \
+    "$temporary_directory/readiness-limited-status.txt"
+grep -q "Persistent Oura signal: Sleep below Good on 0 and Readiness below Good on 2" \
+    "$temporary_directory/readiness-limited-status.txt"
+test "$readiness_line_count" = "$(wc -l < "$readiness_limited_data" | tr -d ' ')"
+
+progress_review_data="$temporary_directory/progress-review.jsonl"
+"$binary" --data "$progress_review_data" init 2026-07-20 >/dev/null
+"$binary" --data "$progress_review_data" log 2026-07-20 \
+    --distance 6 --avg-hr 140 --rpe 3 --pain 0 >/dev/null
+"$binary" --data "$progress_review_data" log 2026-07-21 \
+    --distance 6 --duration 30:00 --avg-hr 145 --rpe 5 --pain 0 >/dev/null
+"$binary" --data "$progress_review_data" log 2026-07-23 \
+    --distance 6 --avg-hr 142 --rpe 3 --pain 0 >/dev/null
+"$binary" --data "$progress_review_data" log 2026-07-25 \
+    --distance 12 --avg-hr 138 --rpe 4 --pain 0 >/dev/null
+"$binary" --data "$progress_review_data" log 2026-07-27 \
+    --distance 7 --avg-hr 141 --rpe 3 --pain 0 >/dev/null
+"$binary" --data "$progress_review_data" log 2026-07-28 \
+    --distance 7 --duration 30:00 --avg-hr 146 --rpe 5 --pain 0 >/dev/null
+"$binary" --data "$progress_review_data" log 2026-07-30 \
+    --distance 7 --avg-hr 143 --rpe 3 --pain 0 >/dev/null
+"$binary" --data "$progress_review_data" log 2026-08-01 \
+    --distance 13 --duration 1:30:00 --avg-hr 136 --rpe 4 --pain 0 >/dev/null
+for check_in_date in \
+    2026-07-21 2026-07-22 2026-07-24 2026-07-26 \
+    2026-07-28 2026-07-29 2026-07-31 2026-08-01 \
+    2026-08-02 2026-08-03
+do
+    "$binary" --data "$progress_review_data" check-in "$check_in_date" \
+        --sleep 82 --readiness 80 >/dev/null
+done
+progress_line_count=$(wc -l < "$progress_review_data" | tr -d ' ')
+"$binary" --data "$progress_review_data" review --as-of 2026-08-03 \
+    > "$temporary_directory/progress-status.txt"
+grep -q "Recommendation: PROGRESS" "$temporary_directory/progress-status.txt"
+grep -q "Progression evidence:" "$temporary_directory/progress-status.txt"
+test "$progress_line_count" = "$(wc -l < "$progress_review_data" | tr -d ' ')"
+
+pain_review_data="$temporary_directory/pain-review.jsonl"
+cp "$progress_review_data" "$pain_review_data"
+"$binary" --data "$pain_review_data" log 2026-08-01 \
+    --distance 13 --duration 1:30:00 --avg-hr 136 --rpe 4 --pain 5 >/dev/null
+pain_line_count=$(wc -l < "$pain_review_data" | tr -d ' ')
+printf 'no\n' | "$binary" --data "$pain_review_data" review --as-of 2026-08-03 \
+    > "$temporary_directory/pain-no-status.txt"
+grep -q "Is pain currently affecting your ability to follow the training plan?" \
+    "$temporary_directory/pain-no-status.txt"
+grep -q "Recommendation: PROGRESS" "$temporary_directory/pain-no-status.txt"
+grep -q "pain does not currently affect the plan" \
+    "$temporary_directory/pain-no-status.txt"
+printf 'yes\n' | "$binary" --data "$pain_review_data" review --as-of 2026-08-03 \
+    > "$temporary_directory/pain-yes-status.txt"
+grep -q "Recommendation: REDUCE" "$temporary_directory/pain-yes-status.txt"
+grep -q "You confirmed that current pain affects your ability to follow the plan" \
+    "$temporary_directory/pain-yes-status.txt"
+test "$pain_line_count" = "$(wc -l < "$pain_review_data" | tr -d ' ')"
 
 sparse_review_data="$temporary_directory/sparse-review.jsonl"
 "$binary" --data "$sparse_review_data" init 2026-07-20 >/dev/null
 "$binary" --data "$sparse_review_data" log 2026-07-20 \
     --distance 6 --rpe 3 --pain 0 >/dev/null
-"$binary" --data "$sparse_review_data" review --weeks 1 --ending 2026-07-26 \
+"$binary" --data "$sparse_review_data" review report --weeks 1 --ending 2026-07-26 \
     > "$temporary_directory/sparse-review.md"
-grep -q "Classification: \\*\\*INSUFFICIENT_DATA\\*\\*" \
+grep -q "Recommendation: \\*\\*INSUFFICIENT_DATA\\*\\*" \
     "$temporary_directory/sparse-review.md"
 grep -q "REVIEW-COVERAGE-RECOVERY-01.*FIRED" "$temporary_directory/sparse-review.md"
+
+"$binary" --data "$sparse_review_data" review --as-of 2026-07-27 \
+    > "$temporary_directory/sparse-status.txt"
+grep -q 'Workout outcomes: 3 missing (1/4 recorded)' "$temporary_directory/sparse-status.txt"
+grep -q '  - 2026-07-21: hills' "$temporary_directory/sparse-status.txt"
+grep -q '  - 2026-07-23: steady' "$temporary_directory/sparse-status.txt"
+grep -q '  - 2026-07-25: long' "$temporary_directory/sparse-status.txt"
+grep -q 'Next-morning Oura: add at least 2 check-in(s)' "$temporary_directory/sparse-status.txt"
+grep -q '2026-07-22 (morning after 2026-07-21, hills)' "$temporary_directory/sparse-status.txt"
+grep -q 'Recent Oura: add at least 2 check-in(s)' "$temporary_directory/sparse-status.txt"
+grep -q '  - 2026-07-27$' "$temporary_directory/sparse-status.txt"
+if grep -Eq '  - 2026-07-(20|22|24|26|27):|runningman log|runningman check-in|scripts/import-oura' "$temporary_directory/sparse-status.txt"; then
+    echo "coverage gaps included a recorded, optional, rest, or open workout, or command instructions" >&2
+    exit 1
+fi
+
+# Reproduce a single missing workout with sufficient recovery coverage.
+single_gap_data="$temporary_directory/single-gap.jsonl"
+cp "$sparse_review_data" "$single_gap_data"
+"$binary" --data "$single_gap_data" log 2026-07-21 --skipped --reason sickness >/dev/null
+"$binary" --data "$single_gap_data" log 2026-07-25 --sport cycling --duration 40 >/dev/null
+for morning in 2026-07-21 2026-07-22 2026-07-26 2026-07-27; do
+    "$binary" --data "$single_gap_data" check-in "$morning" --sleep 80 --readiness 80 >/dev/null
+done
+cp "$single_gap_data" "$temporary_directory/single-gap-before.jsonl"
+"$binary" --data "$single_gap_data" review --as-of 2026-07-27 \
+    > "$temporary_directory/single-gap.txt"
+grep -q 'Workout outcomes: 1 missing (3/4 recorded)' "$temporary_directory/single-gap.txt"
+grep -q '  - 2026-07-23: steady' "$temporary_directory/single-gap.txt"
+grep -q 'Oura coverage is sufficient' "$temporary_directory/single-gap.txt"
+if grep -Eq '  - 2026-07-(21|25):|Next-morning Oura: add|Recent Oura: add' "$temporary_directory/single-gap.txt"; then
+    echo "coverage gaps included existing skipped/cycling outcomes or sufficient Oura data" >&2
+    exit 1
+fi
+cmp "$single_gap_data" "$temporary_directory/single-gap-before.jsonl"
+
+"$binary" --data "$single_gap_data" log 2026-07-23 --skipped --reason sickness >/dev/null
+cp "$single_gap_data" "$temporary_directory/replan-before.jsonl"
+"$binary" --data "$single_gap_data" review --as-of 2026-07-27 > "$temporary_directory/replan-status.txt"
+grep -q 'Recommendation: REPLAN' "$temporary_directory/replan-status.txt"
+grep -q '2 core workouts recorded as skipped due to sickness: 2026-07-21 through 2026-07-23' "$temporary_directory/replan-status.txt"
+grep -q 'No effort, Oura, or confirmed-pain reduction rule fired' "$temporary_directory/replan-status.txt"
+grep -q 'race date belongs to the next proposal' "$temporary_directory/replan-status.txt"
+"$binary" --data "$single_gap_data" review report --weeks 1 --ending 2026-07-26 > "$temporary_directory/replan-report.md"
+grep -q 'Recommendation: \*\*REPLAN\*\*' "$temporary_directory/replan-report.md"
+grep -q '2 core workouts recorded as skipped due to sickness' "$temporary_directory/replan-report.md"
+cmp "$single_gap_data" "$temporary_directory/replan-before.jsonl"
 
 if "$binary" --data "$data_file" log 2026-07-22 --distance 8 --rpe 11 >/dev/null 2>&1; then
     echo "expected invalid RPE to fail" >&2
